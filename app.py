@@ -1,17 +1,8 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
+import os
 from streamlit_gsheets import GSheetsConnection
-
-# 🌐 Establish secure connection to your Google Sheets database
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# 📋 Load your data tables directly from the spreadsheet tabs
-try:
-    student_df = conn.read(worksheet="student_database")
-    attendance_df = conn.read(worksheet="attendance_log")
-    announcements_df = conn.read(worksheet="announcements")
-except Exception as e:
-    st.error("Database connection configuration initializing... Please verify your sheet tab names match precisely.")
 
 # ==============================================================================
 # 1. PAGE CONFIGURATION & GLOBAL APP SETTINGS
@@ -26,102 +17,75 @@ st.set_page_config(
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM/edit?usp=sharing"
 WEBSITE_URL = "https://mathscience.in"
 
-# Custom CSS styling injection for high-fidelity interactive green buttons
+# Custom CSS styling injection for green WhatsApp buttons
 st.markdown("""
 <style>
     [data-testid="stMetricValue"] { font-size: 24px !important; font-weight: 700; }
     .whatsapp-btn {
         display: inline-flex; align-items: center; justify-content: center;
         background-color: #25D366; color: white !important; font-weight: bold;
-        padding: 8px 16px; border-radius: 8px; text-decoration: none; font-size: 14px;
-        margin-top: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 6px 14px; border-radius: 8px; text-decoration: none; font-size: 13px;
     }
-    .whatsapp-btn:hover { background-color: #128C7E; color: white !important; text-decoration: none; }
+    .whatsapp-btn:hover { background-color: #128C7E; color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ==============================================================================
-# PREMIUM ALIGNED HEADER LAYOUT
-# ==============================================================================
+# Main Screen Header Layout containing your custom logo picture
 with st.container():
-    # Verify image presence
-    logo_exists = os.path.exists("logo.jpg")
-    
-    # Title row with image inline
+    if os.path.exists("logo.jpg"):
+        st.image("logo.jpg", width=110)
     st.markdown(f"""
-    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin-bottom: 12px; padding-top: 5px;">
-        {"<img src='data:image/jpeg;base64," + __import__("base64").b64encode(open("logo.jpg", "rb").read()).decode() + "' style='width: 48px; height: 48px; border-radius: 10px; object-fit: cover;' />" if logo_exists else ""}
-        <h1 style="color: #0f172a; font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 800; margin: 0px; padding: 0px; letter-spacing: -0.5px;">MathScience Tuition App</h1>
+    <h1 style="color: #0f172a; font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 800; margin-top: 5px; margin-bottom: 0px;">MathScience Tuition App</h1>
+    <div style="display: inline-block; margin-top: 5px; margin-bottom: 15px; padding: 4px 12px; background-color: #e0f2fe; border-radius: 20px;">
+        <p style="color: #0369a1; font-family: 'Inter', system-ui, sans-serif; font-size: 11px; font-weight: 700; margin: 0; text-transform: uppercase;">📚 PRIVATE TUITION & STUDENT PORTAL</p>
     </div>
-    """, unsafe_allow_html=True)
-        
-    # Badges and link row directly underneath
-    st.markdown(f"""
-    <div style="margin-bottom: 25px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <div style="display: inline-block; padding: 5px 14px; background-color: #e0f2fe; border-radius: 20px; vertical-align: middle;">
-            <p style="color: #0369a1; font-family: 'Inter', system-ui, sans-serif; font-size: 11px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 0.3px;">📚 PRIVATE TUITION & STUDENT PORTAL</p>
-        </div>
-        <a href="{WEBSITE_URL}" target="_blank" style="display: inline-block; background: #0f172a; color: #ffffff !important; font-family: 'Inter', system-ui, sans-serif; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px; text-decoration: none; box-shadow: 0 2px 4px rgba(0,0,0,0.05); vertical-align: middle;">🌐 Visit Academy Portal</a>
+    <div style="margin-bottom: 20px;">
+        <a href="{WEBSITE_URL}" target="_blank" style="display: inline-block; background: #0f172a; color: #ffffff !important; font-family: 'Inter', system-ui, sans-serif; font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 10px; text-decoration: none;">🌐 Visit Academy Portal</a>
     </div>
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. CLOUD CONNECTOR READ PIPELINES & HARD DISK LOCAL CSV FALLBACKS
+# 2. LIVE CLOUD DATABASE STORAGE CONNECTOR (GOOGLE SHEETS)
 # ==============================================================================
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    # [DATAFRAME PIPELINE 1]: STABLE STUDENTS DATA MANAGEMENT LAYER
+    # 1. Fetch Students Database
     try:
         st.session_state.student_db = conn.read(spreadsheet=GSHEET_URL, worksheet="Students")
         if st.session_state.student_db.empty or "Student Name" not in st.session_state.student_db.columns:
             raise ValueError
     except Exception:
-        if os.path.exists("student_database.csv"):
-            st.session_state.student_db = pd.read_csv("student_database.csv")
-        else:
-            st.session_state.student_db = pd.DataFrame({
-                "Student Name": ["Rudra", "Supratik", "Vivek", "Ananya", "Arup"],
-                "Math Score": [85, 92, 78, 95, 88],
-                "Monthly Fee (₹)": [1500, 1500, 1500, 1500, 1500],
-                "Fee Status": ["Paid", "Pending", "Paid", "Paid", "Pending"]
-            })
-            st.session_state.student_db.to_csv("student_database.csv", index=False)
+        st.session_state.student_db = pd.DataFrame({
+            "Student Name": ["Rudra", "Supratik", "Vivek", "Ananya", "Arup"],
+            "Math Score": [85, 92, 78, 95, 88],
+            "Monthly Fee (₹)": [1500, 1500, 1500, 1500, 1500],
+            "Fee Status": ["Paid", "Pending", "Paid", "Paid", "Pending"]
+        })
 
-    # [DATAFRAME PIPELINE 2]: STABLE HISTORICAL ATTENDANCE TRACKING LAYER
+    # 2. Fetch Attendance Log
     try:
         st.session_state.attendance_db = conn.read(spreadsheet=GSHEET_URL, worksheet="Attendance")
         if st.session_state.attendance_db.empty or "Student Name" not in st.session_state.attendance_db.columns:
             raise ValueError
     except Exception:
-        if os.path.exists("attendance_log.csv"):
-            st.session_state.attendance_db = pd.read_csv("attendance_log.csv")
-        else:
-            st.session_state.attendance_db = pd.DataFrame(columns=["Date", "Student Name", "Status"])
-            st.session_state.attendance_db.to_csv("attendance_log.csv", index=False)
+        st.session_state.attendance_db = pd.DataFrame(columns=["Date", "Student Name", "Status"])
 
-    # [DATAFRAME PIPELINE 3]: STABLE BULLETIN BOARD ANNOUNCEMENTS LAYER
+    # 3. Fetch Announcements
     try:
         st.session_state.announcements = conn.read(spreadsheet=GSHEET_URL, worksheet="Announcements")
         if st.session_state.announcements.empty or "Notice" not in st.session_state.announcements.columns:
             raise ValueError
     except Exception:
-        if os.path.exists("announcements.csv"):
-            st.session_state.announcements = pd.read_csv("announcements.csv")
-        else:
-            st.session_state.announcements = pd.DataFrame([
-                {"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": "Welcome to the new MathScience Academy digital Tuition Portal! 🎉"}
-            ])
-            st.session_state.announcements.to_csv("announcements.csv", index=False)
+        st.session_state.announcements = pd.DataFrame([
+            {"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": "Welcome to the new MathScience Academy digital Tuition Portal! 🎉"}
+        ])
 
 except Exception as e:
-    st.error("Cloud Database Connection Pending. Verify your active internet link and configuration settings.")
+    st.error("Cloud Database Connection Pending. Please verify your Google Sheet sharing link configurations.")
     st.stop()
 
-
-# ==============================================================================
-# 3. VERIFICATION REGISTRIES & CORE HELPER INTERFACE ROUTINES
-# ==============================================================================
+# Multi-Teacher Verification Dictionary
 TEACHER_REGISTRY = {
     "Admin Master": "9999",
     "Sudip Das": "1234",
@@ -139,9 +103,8 @@ def render_notice_board():
             st.markdown(f"### 📢 Academy Notice Board (`{latest_notice['Date']}`)")
             st.info(f"👉 **Latest Update:** {latest_notice['Notice']}")
 
-
 # ==============================================================================
-# 4. SIDEBAR NAVIGATION CONSOLE & SECURE LOGIN GATEWAY
+# 3. SIDEBAR NAVIGATION CONSOLE & CARD CONTROLS
 # ==============================================================================
 with st.sidebar:
     st.markdown("## 🧭 Navigation Control")
@@ -149,84 +112,21 @@ with st.sidebar:
         "🔄 Select Portal Mode:", 
         ["Teacher Dashboard", "Student View", "Parent Portal"]
     )
-    
-    st.markdown("---")
-    
-    # MOVED HERE: Verification inputs are now locked tightly inside the sidebar
-    st.markdown("### 🔒 Multi-User Verification")
-    teacher_list = ["-- Select Profile --"] + list(TEACHER_REGISTRY.keys())
-    selected_teacher = st.selectbox("Identify Your Teacher Profile:", teacher_list)
-    entered_pin = st.text_input("Enter Unique Secret PIN:", type="password", placeholder="****")
 
-st.markdown("---")
-
-
-# ==============================================================================
-# 5. DYNAMIC PORTAL DESK MODULAR LAYOUT ENGINES
-# ==============================================================================
-
+# ------------------------------------------------------------------------------
+# MODE MODULE: TEACHER INTERFACE
+# ------------------------------------------------------------------------------
 if portal_mode == "Teacher Dashboard":
-    # Check authorization first inside the sidebar variable states
+    with st.container(border=True):
+        st.markdown("### 🔒 Administrative Multi-User Verification")
+        teacher_list = ["-- Select Profile --"] + list(TEACHER_REGISTRY.keys())
+        selected_teacher = st.selectbox("Identify Your Teacher Profile:", teacher_list)
+        entered_pin = st.text_input("Enter Your Unique Secret PIN:", type="password", placeholder="****")
+        
     if selected_teacher != "-- Select Profile --" and entered_pin == TEACHER_REGISTRY.get(selected_teacher):
         st.toast(f"Welcome back, {selected_teacher}! Identity Verified.", icon="🔑")
         
-        # ROSTER MANAGEMENT CONTROLS (ADD, UPDATE FEE, DELETE)
-        with st.container(border=True):
-            st.markdown("### ⚙️ Teacher Operations & Student Management")
-            tab1, tab2, tab3 = st.tabs(["➕ Add Student", "✏️ Change/Update Monthly Fee", "❌ Delete Student"])
-            
-            # TAB 1: ADD NEW STUDENT
-            with tab1:
-                with st.form("add_student_form", clear_on_submit=True):
-                    new_name = st.text_input("Enter Student Full Name:")
-                    new_score = st.number_input("Initial Math Score:", min_value=0, max_value=100, value=80)
-                    new_fee = st.number_input("Monthly Tuition Fee (₹):", min_value=0, value=1500, step=100)
-                    new_status = st.selectbox("Fee Status:", ["Paid", "Pending"])
-                    submit_add = st.form_submit_button("Add Student to Database", use_container_width=True)
-                    
-                    if submit_add and new_name:
-                        new_row = pd.DataFrame([{
-                            "Student Name": new_name.strip(),
-                            "Math Score": int(new_score),
-                            "Monthly Fee (₹)": int(new_fee),
-                            "Fee Status": new_status
-                        }])
-                        st.session_state.student_db = pd.concat([st.session_state.student_db, new_row], ignore_index=True)
-                        st.session_state.student_db.to_csv("student_database.csv", index=False)
-                        st.success(f"Successfully added student: {new_name}")
-                        st.rerun()
-
-            # TAB 2: UPDATE MONTHLY FEE
-            with tab2:
-                with st.form("update_fee_form"):
-                    select_student_fee = st.selectbox("Select Student to Update:", df["Student Name"].unique())
-                    updated_fee = st.number_input("Modify Monthly Fee (₹):", min_value=0, value=1500, step=100)
-                    updated_status = st.selectbox("Update Fee Ledger Status:", ["Paid", "Pending"])
-                    submit_update = st.form_submit_button("Update Fee Record Details", use_container_width=True)
-                    
-                    if submit_update:
-                        st.session_state.student_db.loc[st.session_state.student_db["Student Name"] == select_student_fee, "Monthly Fee (₹)"] = int(updated_fee)
-                        st.session_state.student_db.loc[st.session_state.student_db["Student Name"] == select_student_fee, "Fee Status"] = updated_status
-                        st.session_state.student_db.to_csv("student_database.csv", index=False)
-                        st.success(f"Updated registration records for {select_student_fee} successfully!")
-                        st.rerun()
-
-            # TAB 3: DELETE STUDENT PROFILE
-            with tab3:
-                select_student_del = st.selectbox("Choose Student Profile to Delete:", ["-- Select Student --"] + list(df["Student Name"].unique()))
-                confirm_check = st.checkbox("⚠️ Check this box to confirm total profile deletion")
-                submit_delete = st.button("Permanently Remove Student From System", use_container_width=True, type="primary")
-                
-                if submit_delete:
-                    if select_student_del != "-- Select Student --" and confirm_check:
-                        st.session_state.student_db = st.session_state.student_db[st.session_state.student_db["Student Name"] != select_student_del]
-                        st.session_state.student_db.to_csv("student_database.csv", index=False)
-                        st.success(f"Profile records for {select_student_del} completely erased.")
-                        st.rerun()
-                    else:
-                        st.warning("Please select a student and click the checkbox to confirm deletion.")
-
-        # BULLETIN BROADCAST DESK
+        # Form 1: Broadcast Notice Announcements Desk
         with st.container(border=True):
             st.markdown(f"### 📢 Broadcast Desk (Publisher: {selected_teacher})")
             with st.form("notice_form", clear_on_submit=True):
@@ -237,11 +137,14 @@ if portal_mode == "Teacher Dashboard":
                     signed_notice = f"{notice_text} (Posted by: {selected_teacher})"
                     new_notice_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": signed_notice}])
                     st.session_state.announcements = pd.concat([st.session_state.announcements, new_notice_row], ignore_index=True)
-                    st.session_state.announcements.to_csv("announcements.csv", index=False)
-                    st.success("Announcement published live successfully!")
+                    
+                    # 🌐 Update Cloud Google Sheet instantly
+                    conn.update(spreadsheet=GSHEET_URL, worksheet="Announcements", data=st.session_state.announcements)
+                    st.success("Announcement updated on cloud Google Sheet successfully!")
+                    st.clear_cache()
                     st.rerun()
 
-        # MOBILE IMAGE PROFILE UPLOADER
+        # Form 2: Mobile Photo Uploader Profiler
         with st.container(border=True):
             st.markdown("### 📷 Upload Student Photo directly from Phone")
             student_options = ["-- Choose Student --"] + list(df["Student Name"].unique())
@@ -266,7 +169,7 @@ if portal_mode == "Teacher Dashboard":
                 else:
                     st.warning("Please specify a student name and attach an image file first.")
 
-        # REVENUE LEDGER METRICS CARDS
+        # Section 3: Revenue Analytics Counter
         with st.container(border=True):
             st.markdown("### 📊 Business & Revenue Analytics")
             total_collected = df[df["Fee Status"] == "Paid"]["Monthly Fee (₹)"].sum()
@@ -276,7 +179,7 @@ if portal_mode == "Teacher Dashboard":
             card1.metric(label="🟢 Total Revenue Collected", value=f"₹{total_collected:,}")
             card2.metric(label="🔴 Total Revenue Pending", value=f"₹{total_pending:,}")
 
-        # OPERATIONS ATTENDANCE LOGGER MATRIX
+        # Form 4: Attendance Taking Manager Checklist
         with st.container(border=True):
             st.markdown("### 📅 Take Attendance")
             selected_date = st.date_input("Select Date for Attendance:", datetime.now().date())
@@ -301,34 +204,35 @@ if portal_mode == "Teacher Dashboard":
                     old_history = old_history[old_history["Date"] != date_str]
                     
                 st.session_state.attendance_db = pd.concat([old_history, new_att_df], ignore_index=True)
-                st.session_state.attendance_db.to_csv("attendance_log.csv", index=False)
-                st.success(f"Attendance log updated for {date_str} successfully!")
+                
+                # 🌐 Update Cloud Google Sheet instantly
+                conn.update(spreadsheet=GSHEET_URL, worksheet="Attendance", data=st.session_state.attendance_db)
+                st.success(f"Attendance cloud log synced for {date_str} successfully!")
+                st.clear_cache()
+                st.rerun()
 
-        # ACTIVE ADMINISTRATIVE ROSTER DATA GRID
+        # Section 5: Admin Roster Overview Grid
         with st.container(border=True):
             st.markdown("### 📋 Active Student Roster & Fee Desk")
             st.dataframe(df, use_container_width=True, hide_index=True)
 
     else:
         if entered_pin != "":
-            st.sidebar.error("❌ Incorrect PIN. Try again.")
+            st.error("Incorrect PIN. Please try again.")
         else:
-            st.warning("🔒 Please complete your verification profile inside the sidebar menu to unlock administrative access.")
-        render_notice_board()
+            st.warning("Please enter your registered Teacher Verification PIN to unlock dashboard options.")
 
-# ------------------------------------------------------------------------------
-# PORTAL MODULE DIRECTION: SECURE STUDENT & PARENT DISPLAY PLATFORMS
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# MODE MODULE: STUDENT & PARENT DISPLAY MODES
+# ==============================================================================
 else:
     st.markdown(f"## 👤 {portal_mode}")
     render_notice_board()
     
-    # SCORES REPORT DESK
     with st.container(border=True):
         st.markdown("### 📈 Your Academic Performance Profile")
         st.dataframe(df[["Student Name", "Math Score", "Fee Status"]], use_container_width=True, hide_index=True)
 
-    # COMPREHENSIVE ATTENDANCE RECORDS LOG LEDGER
     with st.container(border=True):
         st.markdown("### 📅 Verified Historical Attendance Ledger")
         att_history = st.session_state.attendance_db
@@ -337,7 +241,6 @@ else:
         else:
             st.info("No historical attendance marks logged in database yet.")
 
-    # COMMUNICATIONS HUB ENGINE (WHATSAPP SMART LINKS)
     with st.container(border=True):
         st.markdown("### 💬 Direct Academy Support Desk")
         st.write("Connect with the teaching staff directly via WhatsApp:")
