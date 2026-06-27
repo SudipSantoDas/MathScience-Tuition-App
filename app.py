@@ -1,8 +1,17 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import os
 from streamlit_gsheets import GSheetsConnection
+
+# 🌐 Establish secure connection to your Google Sheets database
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 📋 Load your data tables directly from the spreadsheet tabs
+try:
+    student_df = conn.read(worksheet="student_database")
+    attendance_df = conn.read(worksheet="attendance_log")
+    announcements_df = conn.read(worksheet="announcements")
+except Exception as e:
+    st.error("Database connection configuration initializing... Please verify your sheet tab names match precisely.")
 
 # ==============================================================================
 # 1. PAGE CONFIGURATION & GLOBAL APP SETTINGS
