@@ -5,7 +5,7 @@ import os
 from streamlit_gsheets import GSheetsConnection
 
 # ==============================================================================
-# 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING (CSS TEXT RE-CONTRAST)
+# 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING (CSS TEXT RE-CONTRAST UPDATE)
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Academy Tracker",
@@ -17,13 +17,43 @@ st.set_page_config(
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM/edit?usp=sharing"
 WEBSITE_URL = "https://mathscience.in"
 
-# 🎨 Premium UI Custom Engine Styling (Text Visibility & High Contrast Fix)
+# 🎨 Premium UI Custom Engine Styling (Text Visibility & Sidebar Contrast Fix)
 st.markdown(f"""
 <style>
     /* Global App Canvas Soft Gradient Background */
     .stApp {{
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
         background-attachment: fixed !important;
+    }}
+    
+    /* 🧭 Streamlit Sidebar Total Visibility Correction Engine */
+    [data-testid="stSidebar"] {{
+        background-color: #0f172a !important; /* Forces uniform deep dark theme on sidebar background */
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }}
+    
+    /* Force Sidebar Heading text to bright white */
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h2 span,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 22px !important;
+    }}
+    
+    /* Force Sidebar widget / radio labels to bright slate blue */
+    [data-testid="stSidebar"] label, 
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
+        color: #38bdf8 !important;
+        font-weight: 700 !important;
+        font-size: 15px !important;
+    }}
+    
+    /* Force radio option values text ("Teacher Dashboard", etc) to high contrast white */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
+        color: #f1f5f9 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
     }}
     
     /* ⚡ Same-Line Flex Header Layout Wrapper */
@@ -73,7 +103,7 @@ st.markdown(f"""
         font-weight: 700 !important;
     }}
     
-    /* Force Streamlit input labels to be bright and legible */
+    /* Force main body input labels to be legible */
     label, [data-testid="stWidgetLabel"] p {{
         color: #cbd5e1 !important;
         font-weight: 600 !important;
