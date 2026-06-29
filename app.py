@@ -6,7 +6,7 @@ import urllib.parse
 import base64
 
 # ==============================================================================
-# 1. PREMIUM PAGE CONFIGURATION & FORCE MOBILE APPCAPABLE META INJECTIONS
+# 1. PREMIUM PAGE CONFIGURATION & METATAG INJECTIONS
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Tuition",
@@ -14,58 +14,13 @@ st.set_page_config(
     layout="centered"
 )
 
-# 🛠️ Step A: Load the local logo, base64 encode it, and map it directly to head icons
+# Load local logo and base64 encode it for fluid rendering
 logo_b64_str = ""
 if os.path.exists("logo.jpg"):
     with open("logo.jpg", "rb") as img_file:
         logo_b64_str = f"data:image/jpeg;base64,{base64.b64encode(img_file.read()).decode()}"
 else:
     logo_b64_str = "https://mathscience.in/logo.jpg"
-
-# 🛠️ Step B: Inject full background scripts to completely lock the launch icon dynamically
-st.components.v1.html(f"""
-<script>
-    // 1. Setup Manifest parameters on-the-fly to force native app identification
-    const manifest = {{
-        "short_name": "MathScience",
-        "name": "MathScience Tuition",
-        "icons": [{{
-            "src": "{logo_b64_str}",
-            "type": "image/jpeg",
-            "sizes": "192x192"
-        }}],
-        "start_url": "/?utm_source=homescreen",
-        "background_color": "#0f172a",
-        "theme_color": "#0f172a",
-        "display": "standalone",
-        "orientation": "portrait"
-    }};
-    
-    const stringManifest = JSON.stringify(manifest);
-    const blob = new Blob([stringManifest], {{type: 'application/json'}});
-    const manifestURL = URL.createObjectURL(blob);
-    
-    // 2. Clear old icon definitions from DOM and append fresh ones directly into document head
-    var existingManifest = document.querySelector('link[rel="manifest"]');
-    if (existingManifest) existingManifest.remove();
-    
-    var linkManifest = document.createElement('link');
-    linkManifest.rel = 'manifest';
-    linkManifest.href = manifestURL;
-    document.head.appendChild(linkManifest);
-
-    var linkApple = document.createElement('link');
-    linkApple.rel = 'apple-touch-icon';
-    linkApple.href = '{logo_b64_str}';
-    document.head.appendChild(linkApple);
-
-    var linkIcon = document.createElement('link');
-    linkIcon.rel = 'icon';
-    linkIcon.type = 'image/jpeg';
-    linkIcon.href = '{logo_b64_str}';
-    document.head.appendChild(linkIcon);
-</script>
-""", height=0, width=0)
 
 # Core spreadsheet export URL configurations
 SHEET_ID = "1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM"
@@ -93,13 +48,10 @@ st.markdown(f"""
         color: #f1f5f9 !important; font-weight: 600 !important; font-size: 14px !important;
     }}
     button[data-baseweb="tab"] {{
-        color: #94a3b8 !important;
-        font-weight: 600 !important;
-        font-size: 15px !important;
+        color: #94a3b8 !important; font-weight: 600 !important; font-size: 15px !important;
     }}
     button[data-baseweb="tab"][aria-selected="true"] {{
-        color: #38bdf8 !important;
-        font-weight: 700 !important;
+        color: #38bdf8 !important; font-weight: 700 !important;
     }}
     [data-testid="stExpander"] details summary p, [data-testid="stExpander"] p, [data-testid="stExpander"] span {{
         color: #ffffff !important; font-weight: 600 !important; font-size: 15px !important;
@@ -134,11 +86,6 @@ st.markdown(f"""
     }}
     [data-testid="stMetricValue"] {{ font-size: 26px !important; font-weight: 800; color: #06b6d4 !important; }}
     [data-testid="stMetricLabel"] {{ color: #94a3b8 !important; }}
-    .whatsapp-btn {{
-        display: inline-flex; align-items: center; justify-content: center;
-        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); color: white !important; font-weight: bold;
-        padding: 8px 16px; border-radius: 10px; text-decoration: none; font-size: 13px;
-    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -164,7 +111,7 @@ with st.container():
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. RELIABLE CLOUD DATA FETCHING LOGIC
+# 3. RELIABLE DATA FETCHING LOGIC
 # ==============================================================================
 def fetch_cloud_sheet(sheet_name, fallback_df):
     try:
@@ -178,7 +125,9 @@ def fetch_cloud_sheet(sheet_name, fallback_df):
 if 'student_db' not in st.session_state:
     st.session_state.student_db = fetch_cloud_sheet("Students", pd.DataFrame({
         "Student Name": ["Rudra", "Supratik", "Vivek", "Ananya", "Arup"],
+        "Parent Phone": ["9876543210", "9876543211", "9876543212", "9876543213", "9876543214"],
         "Math Score": [85, 92, 78, 95, 88],
+        "Science Score": [90, 88, 82, 96, 84],
         "Monthly Fee (₹)": [1500, 1500, 1500, 1500, 1500],
         "Fee Status": ["Paid", "Pending", "Paid", "Paid", "Pending"]
     }))
@@ -232,7 +181,10 @@ if portal_mode == "Teacher Dashboard":
             with st.expander("➕ Add New Student to Roster", expanded=False):
                 with st.form("add_student_form", clear_on_submit=True):
                     new_student_name = st.text_input("Full Student Name:")
-                    initial_math_score = st.number_input("Initial Math Score:", min_value=0, max_value=100, value=0)
+                    parent_phone = st.text_input("Parent Phone Number:", max_chars=10, placeholder="10-digit number")
+                    col1, col2 = st.columns(2)
+                    initial_math_score = col1.number_input("Initial Math Score:", min_value=0, max_value=100, value=0)
+                    initial_sci_score = col2.number_input("Initial Science Score:", min_value=0, max_value=100, value=0)
                     assigned_monthly_fee = st.number_input("Assigned Monthly Fee (₹):", min_value=0, value=1500)
                     initial_fee_status = st.selectbox("Current Fee Status:", ["Pending", "Paid"])
                     submit_new_student = st.form_submit_button("Create Student Account")
@@ -240,7 +192,9 @@ if portal_mode == "Teacher Dashboard":
                     if submit_new_student and new_student_name.strip() != "":
                         new_row = pd.DataFrame([{
                             "Student Name": new_student_name.strip(),
+                            "Parent Phone": parent_phone.strip() if parent_phone else "N/A",
                             "Math Score": int(initial_math_score),
+                            "Science Score": int(initial_sci_score),
                             "Monthly Fee (₹)": int(assigned_monthly_fee),
                             "Fee Status": initial_fee_status
                         }])
@@ -248,19 +202,24 @@ if portal_mode == "Teacher Dashboard":
                         st.success(f"Registered {new_student_name} successfully!")
                         st.rerun()
 
-            with st.expander("📝 Update Fees, Status, or Math Scores", expanded=False):
+            with st.expander("📝 Update Fees, Status, or Scores", expanded=False):
                 student_to_edit = st.selectbox("Select Student to Modify:", ["-- Choose Student --"] + list(df["Student Name"].unique()))
                 if student_to_edit != "-- Choose Student --":
                     student_data = df[df["Student Name"] == student_to_edit].iloc[0]
                     with st.form("edit_student_form"):
-                        updated_score = st.number_input("Update Math Score:", min_value=0, max_value=100, value=int(student_data["Math Score"]))
+                        curr_phone = st.text_input("Modify Parent Phone:", value=str(student_data.get("Parent Phone", "N/A")))
+                        col1, col2 = st.columns(2)
+                        updated_math = col1.number_input("Update Math Score:", min_value=0, max_value=100, value=int(student_data["Math Score"]))
+                        updated_sci = col2.number_input("Update Science Score:", min_value=0, max_value=100, value=int(student_data.get("Science Score", 0)))
                         updated_fee = st.number_input("Modify Monthly Fee (₹):", min_value=0, value=int(student_data["Monthly Fee (₹)"]))
                         updated_status = st.selectbox("Update Fee Status:", ["Pending", "Paid"], index=["Pending", "Paid"].index(student_data["Fee Status"]))
                         save_edits = st.form_submit_button("Save Changes")
                         
                         if save_edits:
                             idx = st.session_state.student_db[st.session_state.student_db["Student Name"] == student_to_edit].index[0]
-                            st.session_state.student_db.at[idx, "Math Score"] = int(updated_score)
+                            st.session_state.student_db.at[idx, "Parent Phone"] = curr_phone
+                            st.session_state.student_db.at[idx, "Math Score"] = int(updated_math)
+                            st.session_state.student_db.at[idx, "Science Score"] = int(updated_sci)
                             st.session_state.student_db.at[idx, "Monthly Fee (₹)"] = int(updated_fee)
                             st.session_state.student_db.at[idx, "Fee Status"] = updated_status
                             st.success(f"Updated records for {student_to_edit}!")
@@ -318,6 +277,9 @@ if portal_mode == "Teacher Dashboard":
         if entered_pin != "": st.error("Incorrect PIN.")
         else: st.warning("Please enter your Verification PIN to unlock dashboard options.")
 
+# ==============================================================================
+# 5. STUDENT VIEW & PARENT PORTAL MODES (WITH COMPREHENSIVE STATS)
+# ==============================================================================
 else:
     st.markdown(f"## 👤 {portal_mode}")
     render_notice_board()
@@ -326,20 +288,45 @@ else:
     selected_student = st.selectbox("Choose Profile Identity:", student_list)
     
     if selected_student != "-- Select Student Name --":
-        student_profile = df[df["Student Name"] == selected_student]
+        student_profile = df[df["Student Name"] == selected_student].iloc[0]
+        
+        # Calculate live attendance metrics dynamically
+        att_history = st.session_state.attendance_db
+        total_days = 0
+        days_present = 0
+        attendance_pct = "No logs yet"
+        
+        if not att_history.empty and "Student Name" in att_history.columns:
+            filtered_att = att_history[att_history["Student Name"] == selected_student]
+            total_days = len(filtered_att)
+            if total_days > 0:
+                days_present = len(filtered_att[filtered_att["Status"] == "Present"])
+                attendance_pct = f"{int((days_present / total_days) * 100)}%"
+
+        # Display dashboard KPI metric boxes
+        stat_col1, stat_col2, stat_col3 = st.columns(3)
+        stat_col1.metric("📐 Math Score", f"{student_profile['Math Score']}/100")
+        stat_col2.metric("🧪 Science Score", f"{student_profile.get('Science Score', 0)}/100")
+        stat_col3.metric("📅 Total Attendance", attendance_pct)
+        
         with st.container(border=True):
-            st.markdown("#### 📈 Performance & Fee Status")
-            st.dataframe(student_profile[["Student Name", "Math Score", "Fee Status"]], use_container_width=True, hide_index=True)
+            st.markdown("#### 📋 Administrative & Account Details")
+            display_data = pd.DataFrame([{
+                "Student Name": student_profile["Student Name"],
+                "Parent Contact": student_profile.get("Parent Phone", "N/A"),
+                "Monthly Fee": f"₹{student_profile['Monthly Fee (₹)']}",
+                "Fee Status": student_profile["Fee Status"]
+            }])
+            st.dataframe(display_data, use_container_width=True, hide_index=True)
             
         with st.container(border=True):
-            st.markdown("#### 📅 Your Attendance Log (Present / Absent)")
-            att_history = st.session_state.attendance_db
+            st.markdown("#### 📅 Historical Present / Absent Attendance Logs")
             if not att_history.empty and "Student Name" in att_history.columns:
                 filtered_att = att_history[att_history["Student Name"] == selected_student]
                 if not filtered_att.empty:
                     filtered_att = filtered_att.sort_values(by="Date", ascending=False)
                     st.dataframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
                 else:
-                    st.info(f"No attendance marks recorded yet for {selected_student}.")
+                    st.info(f"No active attendance sessions recorded yet for {selected_student}.")
             else:
-                st.info("No historical attendance logged by the administrator yet.")
+                st.info("No attendance database entries available.")
