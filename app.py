@@ -269,58 +269,94 @@ if portal_mode == "Teacher Dashboard":
     if selected_teacher != "-- Select Profile --" and entered_pin == TEACHER_REGISTRY.get(selected_teacher):
         st.toast(f"Welcome back, {selected_teacher}!", icon="🔑")
         
-        # Form 1: Broadcast Notice Announcements Desk
-        with st.container(border=True):
-            st.markdown(f"### 📢 Broadcast Desk (Publisher: {selected_teacher})")
-            with st.form("notice_form", clear_on_submit=True):
-                notice_text = st.text_area("Type Announcement text here:", placeholder="Enter updates...")
-                publish_btn = st.form_submit_button("Publish Announcement Live", use_container_width=True)
+        # 🌟 NEW TAB CONTROL: Organizes your administrative powers beautifully
+        admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([
+            "👥 Student Management", 
+            "📅 Attendance Desk", 
+            "📢 Broadcast Desk", 
+            "📊 Financial Analytics"
+        ])
+
+        # ==========================================
+        # TAB 1: STUDENT MANAGEMENT (ADD, DELETE, EDIT FEES)
+        # ==========================================
+        with admin_tab1:
+            st.markdown("### 🛠️ Academy Student Management Console")
+            
+            # --- SUB-FORM A: ADD NEW STUDENT ---
+            with st.expander("➕ Add New Student to Roster", expanded=False):
+                with st.form("add_student_form", clear_on_submit=True):
+                    new_student_name = st.text_input("Full Student Name:", placeholder="e.g., Amit Kumar")
+                    initial_math_score = st.number_input("Initial Math Score:", min_value=0, max_value=100, value=0)
+                    assigned_monthly_fee = st.number_input("Assigned Monthly Fee (₹):", min_value=0, value=1500)
+                    initial_fee_status = st.selectbox("Current Fee Status:", ["Pending", "Paid"])
+                    submit_new_student = st.form_submit_button("Create Student Account")
+                    
+                    if submit_new_student and new_student_name.strip() != "":
+                        if new_student_name.strip() in df["Student Name"].values:
+                            st.error(f"A student named '{new_student_name}' already exists in your roster.")
+                        else:
+                            new_row = pd.DataFrame([{
+                                "Student Name": new_student_name.strip(),
+                                "Math Score": int(initial_math_score),
+                                "Monthly Fee (₹)": int(assigned_monthly_fee),
+                                "Fee Status": initial_fee_status
+                            }])
+                            st.session_state.student_db = pd.concat([st.session_state.student_db, new_row], ignore_index=True)
+                            conn.update(spreadsheet=GSHEET_URL, worksheet="Students", data=st.session_state.student_db)
+                            st.success(f"🎉 Successfully registered {new_student_name} to the cloud database!")
+                            st.clear_cache()
+                            st.rerun()
+
+            # --- SUB-FORM B: UPDATE MONTHLY FEES & MARKS ---
+            with st.expander("📝 Update Fees, Status, or Math Scores", expanded=False):
+                student_to_edit = st.selectbox("Select Student to Modify:", ["-- Choose Student --"] + list(df["Student Name"].unique()), key="edit_selector")
                 
-                if publish_btn and notice_text:
-                    signed_notice = f"{notice_text} (Posted by: {selected_teacher})"
-                    new_notice_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": signed_notice}])
-                    st.session_state.announcements = pd.concat([st.session_state.announcements, new_notice_row], ignore_index=True)
+                if student_to_edit != "-- Choose Student --":
+                    student_data = df[df["Student Name"] == student_to_edit].iloc[0]
                     
-                    conn.update(spreadsheet=GSHEET_URL, worksheet="Announcements", data=st.session_state.announcements)
-                    st.success("Announcement updated on cloud Google Sheet successfully!")
-                    st.clear_cache()
-                    st.rerun()
-
-        # Form 2: Mobile Photo Uploader Profiler
-        with st.container(border=True):
-            st.markdown("### 📷 Upload Student Photo")
-            student_options = ["-- Choose Student --"] + list(df["Student Name"].unique())
-            target_pic_student = st.selectbox("Select target student identity:", student_options)
-            uploaded_file = st.file_uploader("Take Photo or Choose Gallery file:", type=["jpg", "jpeg", "png"])
-            
-            if st.button("Save Photo to Profile", use_container_width=True):
-                if target_pic_student != "-- Choose Student --" and uploaded_file is not None:
-                    os.makedirs("student_pics", exist_ok=True)
-                    file_ext = uploaded_file.name.split(".")[-1].lower()
-                    save_path = f"student_pics/{target_pic_student.strip()}.{file_ext}"
-                    
-                    for ext in ["jpg", "jpeg", "png"]:
-                        alt_path = f"student_pics/{target_pic_student.strip()}.{ext}"
-                        if os.path.exists(alt_path):
-                            os.remove(alt_path)
+                    with st.form("edit_student_form"):
+                        updated_score = st.number_input("Update Math Score:", min_value=0, max_value=100, value=int(student_data["Math Score"]))
+                        updated_fee = st.number_input("Modify Monthly Fee (₹):", min_value=0, value=int(student_data["Monthly Fee (₹)"]))
+                        updated_status = st.selectbox("Update Fee Status:", ["Pending", "Paid"], index=["Pending", "Paid"].index(student_data["Fee Status"]))
+                        save_edits = st.form_submit_button("Save Changes to Cloud")
+                        
+                        if save_edits:
+                            idx = st.session_state.student_db[st.session_state.student_db["Student Name"] == student_to_edit].index[0]
+                            st.session_state.student_db.at[idx, "Math Score"] = int(updated_score)
+                            st.session_state.student_db.at[idx, "Monthly Fee (₹)"] = int(updated_fee)
+                            st.session_state.student_db.at[idx, "Fee Status"] = updated_status
                             
-                    with open(save_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    st.success(f"Successfully linked image asset to {target_pic_student}!")
-                    st.rerun()
+                            conn.update(spreadsheet=GSHEET_URL, worksheet="Students", data=st.session_state.student_db)
+                            st.success(f"Updated records for {student_to_edit} successfully!")
+                            st.clear_cache()
+                            st.rerun()
 
-        # Section 3: Revenue Analytics Counter
-        with st.container(border=True):
-            st.markdown("### 📊 Business Analytics")
-            total_collected = df[df["Fee Status"] == "Paid"]["Monthly Fee (₹)"].sum()
-            total_pending = df[df["Fee Status"] == "Pending"]["Monthly Fee (₹)"].sum()
-            
-            card1, card2 = st.columns(2)
-            card1.metric(label="🟢 Total Revenue Collected", value=f"₹{total_collected:,}")
-            card2.metric(label="🔴 Total Revenue Pending", value=f"₹{total_pending:,}")
+            # --- SUB-FORM C: DELETE STUDENT REMOVAL ---
+            with st.expander("🗑️ Delete Student from Academy Records", expanded=False):
+                student_to_delete = st.selectbox("Select Target Student for Permanent Removal:", ["-- Choose Student --"] + list(df["Student Name"].unique()), key="delete_selector")
+                
+                if student_to_delete != "-- Choose Student --":
+                    st.warning(f"⚠️ Warning: This will permanently erase {student_to_delete} from all active portals.")
+                    confirm_delete = st.text_input(f"Type DELETE to confirm removal of {student_to_delete}:", placeholder="DELETE")
+                    
+                    if st.button("🔴 Permanently Purge Student Account", use_container_width=True):
+                        if confirm_delete == "DELETE":
+                            st.session_state.student_db = st.session_state.student_db[st.session_state.student_db["Student Name"] != student_to_delete]
+                            conn.update(spreadsheet=GSHEET_URL, worksheet="Students", data=st.session_state.student_db)
+                            st.success(f"Removed student account for {student_to_delete} from records.")
+                            st.clear_cache()
+                            st.rerun()
+                        else:
+                            st.error("Confirmation string mismatch. Please type exactly 'DELETE'.")
 
-        # Form 4: Attendance Taking Manager Checklist
-        with st.container(border=True):
+            st.markdown("#### 📋 Current Active Student Roster View")
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # ==========================================
+        # TAB 2: ATTENDANCE LEDGER DESK
+        # ==========================================
+        with admin_tab2:
             st.markdown("### 📅 Take Attendance")
             selected_date = st.date_input("Select Date for Attendance:", datetime.now().date())
             date_str = selected_date.strftime("%Y-%m-%d")
@@ -349,15 +385,58 @@ if portal_mode == "Teacher Dashboard":
                 st.clear_cache()
                 st.rerun()
 
-        # Section 5: Admin Roster Overview Grid
-        with st.container(border=True):
-            st.markdown("### 📋 Student Roster & Fee Desk")
-            st.dataframe(df, use_container_width=True, hide_index=True)
-    else:
-        if entered_pin != "":
-            st.error("Incorrect PIN. Please try again.")
-        else:
-            st.warning("Please enter your Verification PIN to unlock dashboard options.")
+        # ==========================================
+        # TAB 3: NOTICE BROADCAST DESK
+        # ==========================================
+        with admin_tab3:
+            st.markdown(f"### 📢 Broadcast Desk (Publisher: {selected_teacher})")
+            with st.form("notice_form", clear_on_submit=True):
+                notice_text = st.text_area("Type Announcement text here:", placeholder="Enter updates...")
+                publish_btn = st.form_submit_button("Publish Announcement Live", use_container_width=True)
+                
+                if publish_btn and notice_text:
+                    signed_notice = f"{notice_text} (Posted by: {selected_teacher})"
+                    new_notice_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": signed_notice}])
+                    st.session_state.announcements = pd.concat([st.session_state.announcements, new_notice_row], ignore_index=True)
+                    
+                    conn.update(spreadsheet=GSHEET_URL, worksheet="Announcements", data=st.session_state.announcements)
+                    st.success("Announcement updated on cloud Google Sheet successfully!")
+                    st.clear_cache()
+                    st.rerun()
+                    
+            st.markdown("---")
+            st.markdown("### 📷 Upload Student Profile Picture")
+            student_options = ["-- Choose Student --"] + list(df["Student Name"].unique())
+            target_pic_student = st.selectbox("Select target student identity:", student_options)
+            uploaded_file = st.file_uploader("Take Photo or Choose Gallery file:", type=["jpg", "jpeg", "png"])
+            
+            if st.button("Save Photo to Profile", use_container_width=True):
+                if target_pic_student != "-- Choose Student --" and uploaded_file is not None:
+                    os.makedirs("student_pics", exist_ok=True)
+                    file_ext = uploaded_file.name.split(".")[-1].lower()
+                    save_path = f"student_pics/{target_pic_student.strip()}.{file_ext}"
+                    
+                    for ext in ["jpg", "jpeg", "png"]:
+                        alt_path = f"student_pics/{target_pic_student.strip()}.{ext}"
+                        if os.path.exists(alt_path):
+                            os.remove(alt_path)
+                            
+                    with open(save_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    st.success(f"Successfully linked image asset to {target_pic_student}!")
+                    st.rerun()
+
+        # ==========================================
+        # TAB 4: FINANCIAL ANALYTICS
+        # ==========================================
+        with admin_tab4:
+            st.markdown("### 📊 Business Analytics")
+            total_collected = df[df["Fee Status"] == "Paid"]["Monthly Fee (₹)"].sum()
+            total_pending = df[df["Fee Status"] == "Pending"]["Monthly Fee (₹)"].sum()
+            
+            card1, card2 = st.columns(2)
+            card1.metric(label="🟢 Total Revenue Collected", value=f"₹{total_collected:,}")
+            card2.metric(label="🔴 Total Revenue Pending", value=f"₹{total_pending:,}")
 
 # ------------------------------------------------------------------------------
 # MODE MODULE: STUDENT & PARENT DISPLAY MODES
