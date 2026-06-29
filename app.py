@@ -3,9 +3,10 @@ import pandas as pd
 from datetime import datetime
 import os
 import urllib.parse
+import base64
 
 # ==============================================================================
-# 1. PAGE CONFIGURATION & STYLING ENGINE
+# 1. PREMIUM PAGE CONFIGURATION & FORCE MOBILE APPCAPABLE META INJECTIONS
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Tuition",
@@ -13,28 +14,58 @@ st.set_page_config(
     layout="centered"
 )
 
-# 🛠️ Advanced Mobile Web-App Asset Injection (Fixes the raw text bug)
-components_html = """
+# 🛠️ Step A: Load the local logo, base64 encode it, and map it directly to head icons
+logo_b64_str = ""
+if os.path.exists("logo.jpg"):
+    with open("logo.jpg", "rb") as img_file:
+        logo_b64_str = f"data:image/jpeg;base64,{base64.b64encode(img_file.read()).decode()}"
+else:
+    logo_b64_str = "https://mathscience.in/logo.jpg"
+
+# 🛠️ Step B: Inject full background scripts to completely lock the launch icon dynamically
+st.components.v1.html(f"""
 <script>
-    // Create the icon links dynamically in the actual document head area
+    // 1. Setup Manifest parameters on-the-fly to force native app identification
+    const manifest = {{
+        "short_name": "MathScience",
+        "name": "MathScience Tuition",
+        "icons": [{{
+            "src": "{logo_b64_str}",
+            "type": "image/jpeg",
+            "sizes": "192x192"
+        }}],
+        "start_url": "/?utm_source=homescreen",
+        "background_color": "#0f172a",
+        "theme_color": "#0f172a",
+        "display": "standalone",
+        "orientation": "portrait"
+    }};
+    
+    const stringManifest = JSON.stringify(manifest);
+    const blob = new Blob([stringManifest], {{type: 'application/json'}});
+    const manifestURL = URL.createObjectURL(blob);
+    
+    // 2. Clear old icon definitions from DOM and append fresh ones directly into document head
+    var existingManifest = document.querySelector('link[rel="manifest"]');
+    if (existingManifest) existingManifest.remove();
+    
+    var linkManifest = document.createElement('link');
+    linkManifest.rel = 'manifest';
+    linkManifest.href = manifestURL;
+    document.head.appendChild(linkManifest);
+
     var linkApple = document.createElement('link');
     linkApple.rel = 'apple-touch-icon';
-    linkApple.href = 'https://mathscience.in/logo.jpg';
+    linkApple.href = '{logo_b64_str}';
     document.head.appendChild(linkApple);
 
     var linkIcon = document.createElement('link');
     linkIcon.rel = 'icon';
-    linkIcon.type = 'image/png';
-    linkIcon.href = 'https://mathscience.in/logo.jpg';
+    linkIcon.type = 'image/jpeg';
+    linkIcon.href = '{logo_b64_str}';
     document.head.appendChild(linkIcon);
 </script>
-"""
-st.components.v1.html(components_html, height=0, width=0)
-
-# Core spreadsheet export URL configurations
-SHEET_ID = "1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM"
-GSHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
-WEBSITE_URL = "https://mathscience.in"
+""", height=0, width=0)
 
 # Core spreadsheet export URL configurations
 SHEET_ID = "1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM"
@@ -115,16 +146,9 @@ st.markdown(f"""
 # 2. HEADER INTERFACE DESIGN
 # ==============================================================================
 with st.container():
-    import base64
-    logo_html = ""
-    if os.path.exists("logo.jpg"):
-        with open("logo.jpg", "rb") as image_file:
-            encoded_logo = base64.b64encode(image_file.read()).decode()
-            logo_html = f'<img src="data:image/jpeg;base64,{encoded_logo}" style="width: 60px; height: 60px; border-radius: 20%; box-shadow: 0 0 20px rgba(6, 182, 212, 0.4); flex-shrink: 0;">'
-
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 15px; margin-top: -10px; margin-bottom: 20px;">
-        {logo_html}
+        <img src="{logo_b64_str}" style="width: 60px; height: 60px; border-radius: 20%; box-shadow: 0 0 20px rgba(6, 182, 212, 0.4); flex-shrink: 0;">
         <h1 style="font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin: 0; background: linear-gradient(135deg, #ffffff 30%, #38bdf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap;">
             MathScience Tuition
         </h1>
@@ -146,8 +170,7 @@ def fetch_cloud_sheet(sheet_name, fallback_df):
     try:
         url = GSHEET_URL + urllib.parse.quote(sheet_name)
         data = pd.read_csv(url)
-        if data.empty:
-            return fallback_df
+        if data.empty: return fallback_df
         return data
     except Exception:
         return fallback_df
@@ -295,37 +318,25 @@ if portal_mode == "Teacher Dashboard":
         if entered_pin != "": st.error("Incorrect PIN.")
         else: st.warning("Please enter your Verification PIN to unlock dashboard options.")
 
-# ==============================================================================
-# 5. STUDENT VIEW & PARENT PORTAL MODES (WITH HISTORICAL ATTENDANCE LEDGER)
-# ==============================================================================
 else:
     st.markdown(f"## 👤 {portal_mode}")
     render_notice_board()
-    
-    # Selection filter for Students/Parents to look up their exact records
     st.markdown("### 🔎 Access Academic Profile")
     student_list = ["-- Select Student Name --"] + list(df["Student Name"].unique())
     selected_student = st.selectbox("Choose Profile Identity:", student_list)
     
     if selected_student != "-- Select Student Name --":
-        # Filter down student performance
         student_profile = df[df["Student Name"] == selected_student]
-        
         with st.container(border=True):
             st.markdown("#### 📈 Performance & Fee Status")
             st.dataframe(student_profile[["Student Name", "Math Score", "Fee Status"]], use_container_width=True, hide_index=True)
             
-        # 📅 NEW: Historical Attendance Dashboard for Parents & Students
         with st.container(border=True):
             st.markdown("#### 📅 Your Attendance Log (Present / Absent)")
             att_history = st.session_state.attendance_db
-            
             if not att_history.empty and "Student Name" in att_history.columns:
-                # Filter rows matching the selected student profile name
                 filtered_att = att_history[att_history["Student Name"] == selected_student]
-                
                 if not filtered_att.empty:
-                    # Sort by latest date first
                     filtered_att = filtered_att.sort_values(by="Date", ascending=False)
                     st.dataframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
                 else:
