@@ -5,25 +5,36 @@ import os
 import urllib.parse
 
 # ==============================================================================
-# 1. PAGE CONFIGURATION & METATAG INJECTIONS
+# 1. PAGE CONFIGURATION & STYLING ENGINE
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Tuition",
-    page_icon="🎓", # Using a clean emoji favicon here prevents the red logo fallback
+    page_icon="🎓", 
     layout="centered"
 )
 
-# Force-inject raw HTML into the app head section to override phone launchers completely
-st.markdown("""
-    <head>
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-title" content="MathScience">
-        
-        <link rel="apple-touch-icon" href="https://mathscience.in/favicon.ico">
-        <link rel="icon" type="image/png" href="https://mathscience.in/favicon.ico">
-    </head>
-""", unsafe_allow_html=True)
+# 🛠️ Advanced Mobile Web-App Asset Injection (Fixes the raw text bug)
+components_html = """
+<script>
+    // Create the icon links dynamically in the actual document head area
+    var linkApple = document.createElement('link');
+    linkApple.rel = 'apple-touch-icon';
+    linkApple.href = 'https://mathscience.in/logo.jpg';
+    document.head.appendChild(linkApple);
+
+    var linkIcon = document.createElement('link');
+    linkIcon.rel = 'icon';
+    linkIcon.type = 'image/png';
+    linkIcon.href = 'https://mathscience.in/logo.jpg';
+    document.head.appendChild(linkIcon);
+</script>
+"""
+st.components.v1.html(components_html, height=0, width=0)
+
+# Core spreadsheet export URL configurations
+SHEET_ID = "1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM"
+GSHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
+WEBSITE_URL = "https://mathscience.in"
 
 # Core spreadsheet export URL configurations
 SHEET_ID = "1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM"
