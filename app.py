@@ -5,7 +5,7 @@ import os
 from streamlit_gsheets import GSheetsConnection
 
 # ==============================================================================
-# 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING (CSS INJECTION UPDATE)
+# 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING (CSS TEXT RE-CONTRAST)
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Academy Tracker",
@@ -17,7 +17,7 @@ st.set_page_config(
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM/edit?usp=sharing"
 WEBSITE_URL = "https://mathscience.in"
 
-# 🎨 Updated Premium UI Custom Engine Styling (Same-line Header + Text Gradient)
+# 🎨 Premium UI Custom Engine Styling (Text Visibility & High Contrast Fix)
 st.markdown(f"""
 <style>
     /* Global App Canvas Soft Gradient Background */
@@ -42,7 +42,7 @@ st.markdown(f"""
         box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
     }}
     
-    /* ✨ Stunning Gradient Text Styling for Title (No App Word) */
+    /* ✨ Stunning Gradient Text Styling for Title */
     .gradient-title {{
         font-family: 'Inter', system-ui, sans-serif;
         font-size: 28px;
@@ -67,6 +67,26 @@ st.markdown(f"""
         animation: fadeIn 1s ease-out;
     }}
     
+    /* 🔒 High-Contrast Form Text Corrections */
+    h3, .stMarkdown h3 p, [data-testid="stMarkdownContainer"] h3 {{
+        color: #f8fafc !important;
+        font-weight: 700 !important;
+    }}
+    
+    /* Force Streamlit input labels to be bright and legible */
+    label, [data-testid="stWidgetLabel"] p {{
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }}
+    
+    /* Customize the sub-warning banner color tone */
+    .stAlert {{
+        background-color: rgba(234, 179, 8, 0.1) !important;
+        border: 1px solid rgba(234, 179, 8, 0.3) !important;
+        color: #fde047 !important;
+    }}
+    
     /* Vibrant Blue Gradient Portal Action Button */
     .portal-btn {{
         display: inline-block;
@@ -87,7 +107,7 @@ st.markdown(f"""
         box-shadow: 0 6px 20px rgba(6, 182, 212, 0.5);
     }}
     
-    /* Premium Elements Adjustments */
+    /* Premium Metrics Adjustments */
     [data-testid="stMetricValue"] {{ font-size: 26px !important; font-weight: 800; color: #06b6d4 !important; }}
     [data-testid="stMetricLabel"] {{ color: #94a3b8 !important; }}
     
@@ -107,7 +127,6 @@ st.markdown(f"""
     }}
 </style>
 """, unsafe_allow_html=True)
-
 # ==============================================================================
 # 2. UPDATED HEADER INTERFACE DESIGN (LOGO AND GRADIENT TITLE ON SAME LINE)
 # ==============================================================================
