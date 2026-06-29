@@ -44,12 +44,12 @@ st.markdown(f"""
     
     /* 🗂️ Master Navigation Tabs High-Visibility Override */
     button[data-baseweb="tab"] {{
-        color: #94a3b8 !important; /* Elegant light slate for inactive tabs */
+        color: #94a3b8 !important;
         font-weight: 600 !important;
         font-size: 15px !important;
     }}
     button[data-baseweb="tab"][aria-selected="true"] {{
-        color: #38bdf8 !important; /* Striking light cyan for active tab */
+        color: #38bdf8 !important;
         font-weight: 700 !important;
     }}
     
@@ -80,6 +80,26 @@ st.markdown(f"""
         color: #cbd5e1 !important;
         font-weight: 600 !important;
         font-size: 14px !important;
+    }}
+    
+    /* 🛠️ FIXED: Force All Form & Submit Buttons to Be Visible with Premium Gradient */
+    div[data-testid="stFormSubmitButton"] button, 
+    .stButton button, 
+    button[kind="primaryFormSubmit"] {{
+        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 10px 20px !important;
+        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important;
+        text-shadow: none !important;
+        width: 100% !important;
+    }}
+    div[data-testid="stFormSubmitButton"] button:hover, 
+    .stButton button:hover {{
+        background: linear-gradient(135deg, #0369a1 0%, #0891b2 100%) !important;
+        color: #ffffff !important;
     }}
     
     /* ✨ Stunning Gradient Text Styling for Title */
