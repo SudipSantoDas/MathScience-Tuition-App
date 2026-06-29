@@ -3,13 +3,20 @@ import pandas as pd
 from datetime import datetime
 import os
 import urllib.parse
+from PIL import Image  # 🎓 Import the Python Image Library
 
 # ==============================================================================
 # 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING
 # ==============================================================================
+# 🛠️ Safe-load your logo.jpg to use as the true browser favicon
+if os.path.exists("logo.jpg"):
+    app_favicon = Image.open("logo.jpg")
+else:
+    app_favicon = "🎓"  # Fallback emoji if the image isn't found locally
+
 st.set_page_config(
-    page_title="MathScience Academy Tracker",
-    page_icon="🎓",
+    page_title="MathScience Tuition",
+    page_icon=app_favicon,  # 🌟 Overwrites the red Streamlit shortcut logo completely
     layout="centered"
 )
 
