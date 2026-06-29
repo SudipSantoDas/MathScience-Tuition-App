@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime
 import os
 import urllib.parse
-import requests
 
 # ==============================================================================
 # 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING
@@ -120,7 +119,6 @@ with st.container():
 # ==============================================================================
 # 3. RELIABLE CLOUD DATA FETCHING LOGIC
 # ==============================================================================
-# Helper to read from sheets securely via CSV endpoints
 def fetch_cloud_sheet(sheet_name, fallback_df):
     try:
         url = GSHEET_URL + urllib.parse.quote(sheet_name)
@@ -201,7 +199,7 @@ if portal_mode == "Teacher Dashboard":
                             "Fee Status": initial_fee_status
                         }])
                         st.session_state.student_db = pd.concat([st.session_state.student_db, new_row], ignore_index=True)
-                        st.success(f"Registered {new_student_name} to local session. (For continuous multi-device syncing, copy updates to your primary Google Sheet layout).")
+                        st.success(f"Registered {new_student_name} successfully!")
                         st.rerun()
 
             with st.expander("📝 Update Fees, Status, or Math Scores", expanded=False):
@@ -274,7 +272,40 @@ if portal_mode == "Teacher Dashboard":
         if entered_pin != "": st.error("Incorrect PIN.")
         else: st.warning("Please enter your Verification PIN to unlock dashboard options.")
 
+# ==============================================================================
+# 5. STUDENT VIEW & PARENT PORTAL MODES (WITH HISTORICAL ATTENDANCE LEDGER)
+# ==============================================================================
 else:
     st.markdown(f"## 👤 {portal_mode}")
     render_notice_board()
-    st.dataframe(df[["Student Name", "Math Score", "Fee Status"]], use_container_width=True, hide_index=True)
+    
+    # Selection filter for Students/Parents to look up their exact records
+    st.markdown("### 🔎 Access Academic Profile")
+    student_list = ["-- Select Student Name --"] + list(df["Student Name"].unique())
+    selected_student = st.selectbox("Choose Profile Identity:", student_list)
+    
+    if selected_student != "-- Select Student Name --":
+        # Filter down student performance
+        student_profile = df[df["Student Name"] == selected_student]
+        
+        with st.container(border=True):
+            st.markdown("#### 📈 Performance & Fee Status")
+            st.dataframe(student_profile[["Student Name", "Math Score", "Fee Status"]], use_container_width=True, hide_index=True)
+            
+        # 📅 NEW: Historical Attendance Dashboard for Parents & Students
+        with st.container(border=True):
+            st.markdown("#### 📅 Your Attendance Log (Present / Absent)")
+            att_history = st.session_state.attendance_db
+            
+            if not att_history.empty and "Student Name" in att_history.columns:
+                # Filter rows matching the selected student profile name
+                filtered_att = att_history[att_history["Student Name"] == selected_student]
+                
+                if not filtered_att.empty:
+                    # Sort by latest date first
+                    filtered_att = filtered_att.sort_values(by="Date", ascending=False)
+                    st.dataframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"No attendance marks recorded yet for {selected_student}.")
+            else:
+                st.info("No historical attendance logged by the administrator yet.")
