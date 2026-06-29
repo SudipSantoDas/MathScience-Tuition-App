@@ -3,22 +3,27 @@ import pandas as pd
 from datetime import datetime
 import os
 import urllib.parse
-from PIL import Image  # 🎓 Import the Python Image Library
 
 # ==============================================================================
-# 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING
+# 1. PAGE CONFIGURATION & METATAG INJECTIONS
 # ==============================================================================
-# 🛠️ Safe-load your logo.jpg to use as the true browser favicon
-if os.path.exists("logo.jpg"):
-    app_favicon = Image.open("logo.jpg")
-else:
-    app_favicon = "🎓"  # Fallback emoji if the image isn't found locally
-
 st.set_page_config(
     page_title="MathScience Tuition",
-    page_icon=app_favicon,  # 🌟 Overwrites the red Streamlit shortcut logo completely
+    page_icon="🎓", # Using a clean emoji favicon here prevents the red logo fallback
     layout="centered"
 )
+
+# Force-inject raw HTML into the app head section to override phone launchers completely
+st.markdown("""
+    <head>
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-title" content="MathScience">
+        
+        <link rel="apple-touch-icon" href="https://mathscience.in/favicon.ico">
+        <link rel="icon" type="image/png" href="https://mathscience.in/favicon.ico">
+    </head>
+""", unsafe_allow_html=True)
 
 # Core spreadsheet export URL configurations
 SHEET_ID = "1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM"
