@@ -149,20 +149,28 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 # ==============================================================================
-# 2. UPDATED HEADER INTERFACE DESIGN (LOGO AND GRADIENT TITLE ON SAME LINE)
+# 2. UPDATED HEADER INTERFACE DESIGN (FORCED SAME-LINE MOBILE FLEXBOX)
 # ==============================================================================
 with st.container():
-    # We combine the logo and text into a unified horizontal layout
-    col_logo, col_text = st.columns([0.22, 0.78], vertical_alignment="center")
+    # 🛠️ Convert local logo to base64 so it can be safely injected into raw HTML
+    import base64
+    logo_html = ""
     
-    with col_logo:
-        if os.path.exists("logo.jpg"):
-            st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-            st.image("logo.jpg", width=75)
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-    with col_text:
-        st.markdown('<h1 class="gradient-title">MathScience Tuition</h1>', unsafe_allow_html=True)
+    if os.path.exists("logo.jpg"):
+        with open("logo.jpg", "rb") as image_file:
+            encoded_logo = base64.b64encode(image_file.read()).decode()
+            # Constructing a clean, non-breaking horizontal row wrapper
+            logo_html = f'<img src="data:image/jpeg;base64,{encoded_logo}" style="width: 60px; height: 60px; border-radius: 20%; box-shadow: 0 0 20px rgba(6, 182, 212, 0.4); flex-shrink: 0;">'
+
+    # Display the logo image and gradient title side-by-side using pure CSS flexbox
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 15px; margin-top: -10px; margin-bottom: 20px;">
+        {logo_html}
+        <h1 style="font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin: 0; background: linear-gradient(135deg, #ffffff 30%, #38bdf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap;">
+            MathScience Tuition
+        </h1>
+    </div>
+    """, unsafe_allow_html=True)
         
     # Sub-action sub-header info elements inside the clean card
     st.markdown(f"""
