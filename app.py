@@ -5,7 +5,8 @@ import os
 from streamlit_gsheets import GSheetsConnection
 
 # ==============================================================================
-# 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING (CSS TEXT RE-CONTRAST UPDATE)
+# ==============================================================================
+# 1. PAGE CONFIGURATION & PREMIUM DESIGN THEMING (MASTER TEXT VISIBILITY FIX)
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Academy Tracker",
@@ -17,7 +18,7 @@ st.set_page_config(
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/1DhuNCdpfHNpycppJDzv2SfWmLdf76iOgxuSPXEbOnWM/edit?usp=sharing"
 WEBSITE_URL = "https://mathscience.in"
 
-# 🎨 Premium UI Custom Engine Styling (Text Visibility & Sidebar Contrast Fix)
+# 🎨 Master High-Contrast UI Styling Engine for Ultimate Readability
 st.markdown(f"""
 <style>
     /* Global App Canvas Soft Gradient Background */
@@ -28,48 +29,57 @@ st.markdown(f"""
     
     /* 🧭 Streamlit Sidebar Total Visibility Correction Engine */
     [data-testid="stSidebar"] {{
-        background-color: #0f172a !important; /* Forces uniform deep dark theme on sidebar background */
+        background-color: #0f172a !important;
         border-right: 1px solid rgba(255, 255, 255, 0.08);
     }}
-    
-    /* Force Sidebar Heading text to bright white */
-    [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h2 span,
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        font-size: 22px !important;
+    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h2 span, [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
+        color: #ffffff !important; font-weight: 700 !important; font-size: 22px !important;
+    }}
+    [data-testid="stSidebar"] label, [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
+        color: #38bdf8 !important; font-weight: 700 !important; font-size: 15px !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
+        color: #f1f5f9 !important; font-weight: 600 !important; font-size: 14px !important;
     }}
     
-    /* Force Sidebar widget / radio labels to bright slate blue */
-    [data-testid="stSidebar"] label, 
-    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
-        color: #38bdf8 !important;
-        font-weight: 700 !important;
+    /* 🗂️ Master Navigation Tabs High-Visibility Override */
+    button[data-baseweb="tab"] {{
+        color: #94a3b8 !important; /* Elegant light slate for inactive tabs */
+        font-weight: 600 !important;
         font-size: 15px !important;
     }}
+    button[data-baseweb="tab"][aria-selected="true"] {{
+        color: #38bdf8 !important; /* Striking light cyan for active tab */
+        font-weight: 700 !important;
+    }}
     
-    /* Force radio option values text ("Teacher Dashboard", etc) to high contrast white */
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
-        color: #f1f5f9 !important;
+    /* ➕ Master Dropdown Expander Bar Text Visibility Fix */
+    [data-testid="stExpander"] details summary p, 
+    [data-testid="stExpander"] p,
+    [data-testid="stExpander"] span {{
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+    }}
+    [data-testid="stExpander"] {{
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 12px !important;
+    }}
+    
+    /* ✨ Headings & Roster Labels Overrides */
+    h1, h2, h3, h4, h5, h6, 
+    [data-testid="stMarkdownContainer"] h4, 
+    [data-testid="stMarkdownContainer"] h4 p {{
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }}
+    
+    /* Force main body form input labels to be perfectly legible */
+    label, [data-testid="stWidgetLabel"] p {{
+        color: #cbd5e1 !important;
         font-weight: 600 !important;
         font-size: 14px !important;
-    }}
-    
-    /* ⚡ Same-Line Flex Header Layout Wrapper */
-    .header-flex-container {{
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        margin-top: -10px;
-        margin-bottom: 20px;
-        animation: fadeIn 1s ease-out;
-    }}
-    
-    /* Centerpiece Logo Premium Small Glow Filter for Same-Line Grid */
-    .logo-container img {{
-        border-radius: 20%;
-        box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
     }}
     
     /* ✨ Stunning Gradient Text Styling for Title */
@@ -94,20 +104,6 @@ st.markdown(f"""
         padding: 25px 20px;
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
         margin-bottom: 25px;
-        animation: fadeIn 1s ease-out;
-    }}
-    
-    /* 🔒 High-Contrast Form Text Corrections */
-    h3, .stMarkdown h3 p, [data-testid="stMarkdownContainer"] h3 {{
-        color: #f8fafc !important;
-        font-weight: 700 !important;
-    }}
-    
-    /* Force main body input labels to be legible */
-    label, [data-testid="stWidgetLabel"] p {{
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 14px !important;
     }}
     
     /* Customize the sub-warning banner color tone */
@@ -150,11 +146,6 @@ st.markdown(f"""
     .whatsapp-btn:hover {{ transform: translateY(-1px); box-shadow: 0 6px 16px rgba(37, 211, 102, 0.4); }}
     
     h1, h2, h3, p, span {{ font-family: 'Inter', system-ui, sans-serif; }}
-    
-    @keyframes fadeIn {{
-        from {{ opacity: 0; transform: translateY(10px); }}
-        to {{ opacity: 1; transform: translateY(0); }}
-    }}
 </style>
 """, unsafe_allow_html=True)
 # ==============================================================================
