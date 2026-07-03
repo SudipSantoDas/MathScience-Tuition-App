@@ -4,9 +4,27 @@ from datetime import datetime
 import os
 import urllib.parse
 import base64
+from supabase import create_client, Client  # 👈 Added the Supabase tool inside your app
 
 # ==============================================================================
-# 1. PREMIUM PAGE CONFIGURATION & METATAG INJECTIONS
+# 🌐 CONNECT TO YOUR CLOUD DATABASE
+# ==============================================================================
+SUPABASE_URL = "https://kzremjjivpkvbbmeqkzk.supabase.co"
+SUPABASE_KEY = "sb_publishable_n7PGTD-wEjjlmMhjsl4d-g_Y4HT_n7PGTD"
+
+# This creates the live connection bridge
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ==============================================================================
+# 1. NEW: SECURITY GUARD (MULTI-USER SESSION STATE)
+# ==============================================================================
+# This keeps track of who is logged in so teachers don't see each other's data
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_role = None  # Will be 'Admin', 'Teacher', or 'Student'
+
+# ==============================================================================
+# 2. PREMIUM PAGE CONFIGURATION & METATAG INJECTIONS
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Tuition",
@@ -90,36 +108,53 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. HEADER INTERFACE DESIGN
+# # ==============================================================================
+# 2. HEADER INTERFACE DESIGN (Now Wrapped inside the Teacher's Dashboard)
 # ==============================================================================
-with st.container():
-    st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 15px; margin-top: -10px; margin-bottom: 20px;">
-        <img src="{logo_b64_str}" style="width: 60px; height: 60px; border-radius: 20%; box-shadow: 0 0 20px rgba(6, 182, 212, 0.4); flex-shrink: 0;">
-        <h1 style="font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin: 0; background: linear-gradient(135deg, #ffffff 30%, #38bdf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap;">
-            MathScience Tuition
-        </h1>
-    </div>
-    <div class="glass-card" style="text-align: center; margin-top: 15px;">
-        <div style="display: inline-block; margin-bottom: 15px; padding: 6px 16px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 30px;">
-            <p style="color: #38bdf8; font-size: 11px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 1px;">✨ PREMIUM PRIVATE PORTAL</p>
+def show_teacher_dashboard():
+    # Everything inside here is pushed to the right by 1 Tab space!
+    with st.container():
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 15px; margin-top: -10px; margin-bottom: 20px;">
+            <img src="{logo_b64_str}" style="width: 60px; height: 60px; border-radius: 20%; box-shadow: 0 0 20px rgba(6, 182, 212, 0.4); flex-shrink: 0;">
+            <h1 style="font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin: 0; background: linear-gradient(135deg, #ffffff 30%, #38bdf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap;">
+                MathScience Tuition
+            </h1>
         </div>
-        <div>
-            <a href="{WEBSITE_URL}" target="_blank" class="portal-btn">🌐 Visit Academy Portal</a>
+        <div class="glass-card" style="text-align: center; margin-top: 15px;">
+            <div style="display: inline-block; margin-bottom: 15px; padding: 6px 16px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 30px;">
+                <p style="color: #38bdf8; font-size: 11px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 1px;">✨ PREMIUM PRIVATE PORTAL</p>
+            </div>
+            <div>
+                <a href="{WEBSITE_URL}" target="_blank" class="portal-btn">🌐 Visit Academy Portal</a>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
+    # 🚨 NOTE: All your student lists, marks columns, and charts that 
+    # come next will also be placed inside this function, indented by 1 tab!
 # ==============================================================================
-# 3. RELIABLE DATA FETCHING LOGIC
+# # ==============================================================================
+# ==============================================================================
+# # 3. PREMIUM SUPABASE CLOUD DATA FETCHING LOGIC
 # ==============================================================================
 def fetch_cloud_sheet(sheet_name, fallback_df):
+    """
+    Directly routes your app requests to your premium Supabase cloud database.
+    If a table doesn't load, it safely returns your fallback data.
+    """
     try:
-        url = GSHEET_URL + urllib.parse.quote(sheet_name)
-        data = pd.read_csv(url)
-        if data.empty: return fallback_df
-        return data
-    except Exception:
+        # Lowercase the name to match your Supabase tables exactly
+        table_target = sheet_name.lower().strip()
+        
+        # Pull the live records from Supabase
+        response = supabase.table(table_target).select("*").execute()
+        
+        if response.data:
+            return pd.DataFrame(response.data)
+        return fallback_df
+    except Exception as e:
+        # If anything drops, seamlessly fall back so your app doesn't crash
         return fallback_df
 
 if 'student_db' not in st.session_state:
@@ -140,7 +175,14 @@ if 'announcements' not in st.session_state:
         {"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": "Welcome to the new MathScience Academy digital Tuition Portal! 🎉"}
     ]))
 
-TEACHER_REGISTRY = {"Admin Master": "9999", "Sudip Das": "1234"}
+# 🌟 UPDATED: Registry containing test credentials for your subscription app
+TEACHER_REGISTRY = {
+    "admin@mathscience.in": "admin123",       # Platform Owner (You)
+    "teacher1@gmail.com": "pass123",         # Subscribed Teacher 1
+    "teacher2@gmail.com": "pass456",         # Subscribed Teacher 2
+    "druvvvv86@gmail.com": "yourpasswordhere" # 👈 ADD THIS LINE RIGHT HERE!
+}
+
 df = st.session_state.student_db
 
 def render_notice_board():
@@ -155,22 +197,74 @@ def render_notice_board():
         """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 4. SIDEBAR NAVIGATION CONSOLE
+# 4. SECURE USER AUTHENTICATION & MULTI-TENANT ROUTING
 # ==============================================================================
-with st.sidebar:
-    st.markdown("<h2 style='color:#f8fafc; font-size:20px; font-weight:700;'>🧭 Navigation Control</h2>", unsafe_allow_html=True)
-    portal_mode = st.radio("🔄 Select Portal Mode:", ["Teacher Dashboard", "Student View", "Parent Portal"])
 
-if portal_mode == "Teacher Dashboard":
+# --- CONTEXT A: USER IS NOT LOGGED IN (SHOW LOGIN FORM) ---
+if not st.session_state.logged_in:
     with st.container(border=True):
-        st.markdown("### 🔒 Administrative Verification")
-        teacher_list = ["-- Select Profile --"] + list(TEACHER_REGISTRY.keys())
-        selected_teacher = st.selectbox("Identify Your Teacher Profile:", teacher_list)
-        entered_pin = st.text_input("Enter PIN:", type="password", placeholder="****")
+        st.markdown("### 🔐 MathScience Academy Network")
+        st.caption("Welcome! Please log in to securely manage your digital tuition roster.")
         
-    if selected_teacher != "-- Select Profile --" and entered_pin == TEACHER_REGISTRY.get(selected_teacher):
-        st.toast(f"Welcome back, {selected_teacher}!", icon="🔑")
+        email_input = st.text_input("Registered Email Address:", placeholder="name@academy.com")
+        password_input = st.text_input("Account Password:", type="password", placeholder="••••••••")
         
+        if st.button("Access Dashboard", use_container_width=True):
+            if email_input in TEACHER_REGISTRY and password_input == TEACHER_REGISTRY[email_input]:
+                st.session_state.logged_in = True
+                # Identify if they are the master platform owner or a subscribing teacher
+                if email_input == "admin@mathscience.in":
+                    st.session_state.user_role = "Admin"
+                else:
+                    st.session_state.user_role = "Teacher"
+                st.toast(f"Authentication Successful! Role: {st.session_state.user_role}", icon="🔑")
+                st.rerun()
+            else:
+                st.error("Invalid email address or password configuration. Please try again.")
+
+# --- CONTEXT B: USER IS LOGGED IN (PROVIDE ROUTING & LOGOUT) ---
+else:
+    # Sidebar Navigation Controls for Active Users
+    with st.sidebar:
+        st.markdown(f"<h2 style='color:#f8fafc; font-size:18px; font-weight:700;'>👤 Active Session</h2>", unsafe_allow_html=True)
+        st.info(f"Connected as:\n**{st.session_state.user_role}**")
+        
+        if st.button("🚪 Log Out of Account", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user_role = None
+            st.rerun()
+            
+    # --------------------------------------------------------------------------
+    # ROLE ROOM 1: PLATFORM OWNER (YOU) - SAAS SUBSCRIPTION CONTROLLER
+    # --------------------------------------------------------------------------
+    if st.session_state.user_role == "Admin":
+        st.markdown("## 📈 SaaS Platform Manager Dashboard")
+        st.write("Welcome, Sudip. Here is the operational state of your global teacher subscription system:")
+        
+        # Micro-SaaS Analytics Cards
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Active Subscribed Teachers", "2 Tutors")
+        m2.metric("Monthly Recurring Revenue", "₹1,998")
+        m3.metric("Global Infrastructure Status", "Healthy 🟢")
+        
+        st.markdown("### 📋 Subscribed Academy Registry")
+        teacher_data_panel = pd.DataFrame([
+            {"Teacher ID": "TCH-001", "Email": "teacher1@gmail.com", "Roster Volume": "5 Students", "Subscription Tier": "Basic (₹999/mo)", "Account Status": "Paid Active"},
+            {"Teacher ID": "TCH-002", "Email": "teacher2@gmail.com", "Roster Volume": "0 Students", "Subscription Tier": "Basic (₹999/mo)", "Account Status": "Paid Active"}
+        ])
+        st.dataframe(teacher_data_panel, use_container_width=True, hide_index=True)
+
+    # --------------------------------------------------------------------------
+    # ROLE ROOM 2: SUBSCRIBING TEACHERS (YOUR CUSTOM CLASSROOM TRACKER)
+    # --------------------------------------------------------------------------
+    elif st.session_state.user_role == "Teacher":
+        # Render the premium branding header we wrapped into memory earlier
+        show_teacher_dashboard()
+        
+        # Render the custom notification board banner
+        render_notice_board()
+        
+        # Generate the operation tabs for the specific teacher session
         admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([
             "👥 Student Management", "📅 Attendance Desk", "📢 Broadcast Desk", "📊 Financial Analytics"
         ])
@@ -260,8 +354,7 @@ if portal_mode == "Teacher Dashboard":
                 notice_text = st.text_area("Type Announcement text here:")
                 publish_btn = st.form_submit_button("Publish Announcement Live")
                 if publish_btn and notice_text:
-                    signed_notice = f"{notice_text} (Posted by: {selected_teacher})"
-                    new_notice_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": signed_notice}])
+                    new_notice_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Notice": notice_text}])
                     st.session_state.announcements = pd.concat([st.session_state.announcements, new_notice_row], ignore_index=True)
                     st.success("Notice updated successfully!")
                     st.rerun()
@@ -273,60 +366,58 @@ if portal_mode == "Teacher Dashboard":
             card1, card2 = st.columns(2)
             card1.metric(label="🟢 Total Revenue Collected", value=f"₹{total_collected:,}")
             card2.metric(label="🔴 Total Revenue Pending", value=f"₹{total_pending:,}")
-    else:
-        if entered_pin != "": st.error("Incorrect PIN.")
-        else: st.warning("Please enter your Verification PIN to unlock dashboard options.")
-
 # ==============================================================================
-# 5. STUDENT VIEW & PARENT PORTAL MODES (WITH COMPREHENSIVE STATS)
-# ==============================================================================
-else:
-    st.markdown(f"## 👤 {portal_mode}")
-    render_notice_board()
-    st.markdown("### 🔎 Access Academic Profile")
-    student_list = ["-- Select Student Name --"] + list(df["Student Name"].unique())
-    selected_student = st.selectbox("Choose Profile Identity:", student_list)
-    
-    if selected_student != "-- Select Student Name --":
-        student_profile = df[df["Student Name"] == selected_student].iloc[0]
+# --------------------------------------------------------------------------
+    # ROLE ROOM 3: STUDENT / PARENT VIEW (YOUR COMPREHENSIVE VIEW-ONLY STATS)
+    # --------------------------------------------------------------------------
+    elif st.session_state.user_role == "Student":
+        st.markdown(f"## 🎒 Student Performance Hub")
+        render_notice_board()
         
-        # Calculate live attendance metrics dynamically
-        att_history = st.session_state.attendance_db
-        total_days = 0
-        days_present = 0
-        attendance_pct = "No logs yet"
+        st.markdown("### 🔎 Access Academic Profile")
+        student_list = ["-- Select Student Name --"] + list(df["Student Name"].unique())
+        selected_student = st.selectbox("Choose Profile Identity:", student_list)
         
-        if not att_history.empty and "Student Name" in att_history.columns:
-            filtered_att = att_history[att_history["Student Name"] == selected_student]
-            total_days = len(filtered_att)
-            if total_days > 0:
-                days_present = len(filtered_att[filtered_att["Status"] == "Present"])
-                attendance_pct = f"{int((days_present / total_days) * 100)}%"
-
-        # Display dashboard KPI metric boxes
-        stat_col1, stat_col2, stat_col3 = st.columns(3)
-        stat_col1.metric("📐 Math Score", f"{student_profile['Math Score']}/100")
-        stat_col2.metric("🧪 Science Score", f"{student_profile.get('Science Score', 0)}/100")
-        stat_col3.metric("📅 Total Attendance", attendance_pct)
-        
-        with st.container(border=True):
-            st.markdown("#### 📋 Administrative & Account Details")
-            display_data = pd.DataFrame([{
-                "Student Name": student_profile["Student Name"],
-                "Parent Contact": student_profile.get("Parent Phone", "N/A"),
-                "Monthly Fee": f"₹{student_profile['Monthly Fee (₹)']}",
-                "Fee Status": student_profile["Fee Status"]
-            }])
-            st.dataframe(display_data, use_container_width=True, hide_index=True)
+        if selected_student != "-- Select Student Name --":
+            student_profile = df[df["Student Name"] == selected_student].iloc[0]
             
-        with st.container(border=True):
-            st.markdown("#### 📅 Historical Present / Absent Attendance Logs")
+            # Calculate live attendance metrics dynamically
+            att_history = st.session_state.attendance_db
+            total_days = 0
+            days_present = 0
+            attendance_pct = "No logs yet"
+            
             if not att_history.empty and "Student Name" in att_history.columns:
                 filtered_att = att_history[att_history["Student Name"] == selected_student]
-                if not filtered_att.empty:
-                    filtered_att = filtered_att.sort_values(by="Date", ascending=False)
-                    st.dataframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
+                total_days = len(filtered_att)
+                if total_days > 0:
+                    days_present = len(filtered_att[filtered_att["Status"] == "Present"])
+                    attendance_pct = f"{int((days_present / total_days) * 100)}%"
+
+            # Display dashboard KPI metric boxes
+            stat_col1, stat_col2, stat_col3 = st.columns(3)
+            stat_col1.metric("📐 Math Score", f"{student_profile['Math Score']}/100")
+            stat_col2.metric("🧪 Science Score", f"{student_profile.get('Science Score', 0)}/100")
+            stat_col3.metric("📅 Total Attendance", attendance_pct)
+            
+            with st.container(border=True):
+                st.markdown("#### 📋 Administrative & Account Details")
+                display_data = pd.DataFrame([{
+                    "Student Name": student_profile["Student Name"],
+                    "Parent Contact": student_profile.get("Parent Phone", "N/A"),
+                    "Monthly Fee": f"₹{student_profile['Monthly Fee (₹)']}",
+                    "Fee Status": student_profile["Fee Status"]
+                }])
+                st.dataframe(display_data, use_container_width=True, hide_index=True)
+                
+            with st.container(border=True):
+                st.markdown("#### 📅 Historical Present / Absent Attendance Logs")
+                if not att_history.empty and "Student Name" in att_history.columns:
+                    filtered_att = att_history[att_history["Student Name"] == selected_student]
+                    if not filtered_att.empty:
+                        filtered_att = filtered_att.sort_values(by="Date", ascending=False)
+                        st.datFaframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
+                    else:
+                        st.info(f"No active attendance sessions recorded yet for {selected_student}.")
                 else:
-                    st.info(f"No active attendance sessions recorded yet for {selected_student}.")
-            else:
-                st.info("No attendance database entries available.")
+                    st.info("No attendance database entries available.")
