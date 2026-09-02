@@ -227,7 +227,9 @@ else:
     # Sidebar Navigation Controls for Active Users
     with st.sidebar:
         st.markdown(f"<h2 style='color:#f8fafc; font-size:18px; font-weight:700;'>👤 Active Session</h2>", unsafe_allow_html=True)
-        st.info(f"Connected as:\n**{st.session_state.user_role}**")
+        role_options = ["Admin", "Teacher", "Student", "Parent"]
+        current_index = role_options.index(st.session_state.user_role) if st.session_state.user_role in role_options else 0
+        st.session_state.user_role = st.selectbox("Switch View / Role:", role_options, index=current_index)
         
         if st.button("🚪 Log Out of Account", use_container_width=True):
             st.session_state.logged_in = False
@@ -369,18 +371,16 @@ else:
 # ==============================================================================
 # --------------------------------------------------------------------------
     # ROLE ROOM 3: STUDENT / PARENT VIEW (YOUR COMPREHENSIVE VIEW-ONLY STATS)
-    # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
     elif st.session_state.user_role == "Student":
-        st.markdown(f"## 🎒 Student Performance Hub")
+        st.markdown("## 🎒 Student Performance Hub")
         render_notice_board()
-        
         st.markdown("### 🔎 Access Academic Profile")
         student_list = ["-- Select Student Name --"] + list(df["Student Name"].unique())
         selected_student = st.selectbox("Choose Profile Identity:", student_list)
-        
+    
         if selected_student != "-- Select Student Name --":
-            student_profile = df[df["Student Name"] == selected_student].iloc[0]
-            
+            student_profile = df[df["Student Name"] == selected_student].iloc[0] 
             # Calculate live attendance metrics dynamically
             att_history = st.session_state.attendance_db
             total_days = 0
@@ -416,8 +416,58 @@ else:
                     filtered_att = att_history[att_history["Student Name"] == selected_student]
                     if not filtered_att.empty:
                         filtered_att = filtered_att.sort_values(by="Date", ascending=False)
-                        st.datFaframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
+                        st.dataframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
                     else:
                         st.info(f"No active attendance sessions recorded yet for {selected_student}.")
                 else:
                     st.info("No attendance database entries available.")
+
+    elif st.session_state.user_role == "Parent":
+        st.markdown("## 👨‍👩‍👦 Academy Parent Portal")
+        render_notice_board()
+
+        st.markdown("### Monitor Ward Progress")
+        parent_student_list = ["-- Select Your Child's Profile --"] + list(df["Student Name"].unique())
+        selected_child = st.selectbox("Choose Child Profile Identity:", parent_student_list)
+        if selected_child != "-- Select Your Child's Profile --":
+            child_profile = df[df["Student Name"] == selected_child].iloc[0]
+
+            # Calculate child attendance
+            att_history = st.session_state.attendance_db
+            child_att_pct = "No logs yet"
+            if not att_history.empty and "Student Name" in att_history.columns:
+                filtered_att = att_history[att_history["Student Name"] == selected_child]
+                tot_days = len(filtered_att)
+                if tot_days > 0:
+                    pres_days = len(filtered_att[filtered_att["Status"] == "Present"])
+                    child_att_pct = f"{int((pres_days / tot_days) * 100)}%"
+
+            # Key academic metrics
+            col1, col2, col3 = st.columns(3)
+            col1.metric("📐 Math Score", f"{child_profile['Math Score']}/100")
+            col2.metric("🧪 Science Score", f"{child_profile.get('Science Score', 0)}/100")
+            col3.metric("📅 Overall Attendance", child_att_pct)
+
+            # Account & fee summary
+            with st.container(border=True):
+                st.markdown("#### 💳 Fee & Enrollment Summary")
+                summary_df = pd.DataFrame([{
+                    "Student Name": child_profile["Student Name"],
+                    "Parent Contact": child_profile.get("Parent Phone", "N/A"),
+                    "Monthly Tuition Fee": f"₹{child_profile['Monthly Fee (₹)']}",
+                    "Current Fee Status": child_profile["Fee Status"]
+                }])
+                st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+            # Attendance records
+            with st.container(border=True):
+                st.markdown("#### 📋 Ward Attendance History")
+                if not att_history.empty and "Student Name" in att_history.columns:
+                    filtered_att = att_history[att_history["Student Name"] == selected_child]
+                    if not filtered_att.empty:
+                        filtered_att = filtered_att.sort_values(by="Date", ascending=False)
+                        st.dataframe(filtered_att[["Date", "Status"]], use_container_width=True, hide_index=True)
+                    else:
+                        st.info(f"No attendance sessions recorded yet for {selected_child}.")
+                else:
+                    st.info("No attendance records found in database.")
