@@ -35,7 +35,12 @@ st.set_page_config(
 # Hide Streamlit header, settings cog, and footer
 st.markdown("""
     <style>
-    header[data-testid="stHeader"] {display: none !important; visibility: hidden !important; height: 0 !important;}
+    header[data-testid="stHeader"] {
+    background: transparent !important;
+}
+header[data-testid="stHeader"] svg {
+    color: #38bdf8 !important;
+}
     div[data-testid="stToolbar"] {display: none !important;}
     footer {display: none !important; visibility: hidden !important;}
     div[class*="viewerBadge"] {display: none !important;}
