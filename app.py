@@ -124,6 +124,13 @@ st.markdown(f"""
 # ==============================================================================
 def show_teacher_dashboard():
     # Everything inside here is pushed to the right by 1 Tab space!
+    with st.sidebar:
+        st.title("Teacher Portal")
+        st.write("Logged in as: Teacher / Admin")
+        if st.button("Log Out"):
+            st.session_state.clear()
+            st.rerun()
+
     with st.container():
         st.markdown(f"""
         <div style="display: flex; align-items: center; gap: 15px; margin-top: -10px; margin-bottom: 20px;">
