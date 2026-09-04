@@ -38,13 +38,28 @@ st.markdown("""
     header[data-testid="stHeader"] {
     background: transparent !important;
 }
-header[data-testid="stHeader"] svg {
-    color: #38bdf8 !important;
-}
-    div[data-testid="stToolbar"] {display: none !important;}
-    footer {display: none !important; visibility: hidden !important;}
-    div[class*="viewerBadge"] {display: none !important;}
-    .block-container {padding-top: 1rem !important; padding-bottom: 1rem !important;}
+header[data-testid="stHeader"] {
+            background: transparent !important;
+            z-index: 99999 !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] {
+            display: block !important;
+            visibility: visible !important;
+            z-index: 100000 !important;
+            color: #38bdf8 !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] svg {
+            fill: #38bdf8 !important;
+            stroke: #38bdf8 !important;
+            width: 28px !important;
+            height: 28px !important;
+        }
+        div[data-testid="stToolbarActions"], div[data-testid="stDecoration"] {
+            display: none !important;
+        }
+        footer {display: none !important; visibility: hidden !important;}
+        div[class*="viewerBadge"] {display: none !important;}
+        .block-container {padding-top: 2rem !important; padding-bottom: 1rem !important;}
     </style>
 """, unsafe_allow_html=True)
 
