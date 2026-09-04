@@ -86,66 +86,118 @@ st.markdown(f"""
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
         background-attachment: fixed !important;
     }}
-    .stApp {{
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
-            background-attachment: fixed !important;
-        }}
-        [data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
-            border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
-        }}
+
     [data-testid="stSidebar"] {{
-    background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
-    border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
-}}
-    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h2 span, [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
-        color: #ffffff !important; font-weight: 700 !important; font-size: 22px !important;
+        background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
+        border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
     }}
-    [data-testid="stSidebar"] label, [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
-        color: #38bdf8 !important; font-weight: 700 !important; font-size: 15px !important;
+
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h2 span, 
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
+        color: #ffffff !important; 
+        font-weight: 700 !important; 
+        font-size: 22px !important;
     }}
+
+    [data-testid="stSidebar"] label, 
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
+        color: #38bdf8 !important; 
+        font-weight: 700 !important; 
+        font-size: 15px !important;
+    }}
+
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
-        color: #f1f5f9 !important; font-weight: 600 !important; font-size: 14px !important;
+        color: #f1f5f9 !important; 
+        font-weight: 600 !important; 
+        font-size: 14px !important;
     }}
+
     button[data-baseweb="tab"] {{
-        color: #94a3b8 !important; font-weight: 600 !important; font-size: 15px !important;
+        color: #94a3b8 !important; 
+        font-weight: 600 !important; 
+        font-size: 15px !important;
     }}
+
     button[data-baseweb="tab"][aria-selected="true"] {{
-        color: #38bdf8 !important; font-weight: 700 !important;
+        color: #38bdf8 !important; 
+        font-weight: 700 !important;
     }}
-    [data-testid="stExpander"] details summary p, [data-testid="stExpander"] p, [data-testid="stExpander"] span {{
-        color: #ffffff !important; font-weight: 600 !important; font-size: 15px !important;
+
+    [data-testid="stExpander"] details summary p, 
+    [data-testid="stExpander"] p, 
+    [data-testid="stExpander"] span {{
+        color: #ffffff !important; 
+        font-weight: 600 !important; 
+        font-size: 15px !important;
     }}
+
     [data-testid="stExpander"] {{
         background: rgba(255, 255, 255, 0.03) !important;
         border: 1px solid rgba(255, 255, 255, 0.08) !important;
         border-radius: 12px !important;
     }}
-    h1, h2, h3, h4, h5, h6, [data-testid="stMarkdownContainer"] h4, [data-testid="stMarkdownContainer"] h4 p {{
-        color: #ffffff !important; font-weight: 700 !important;
+
+    h1, h2, h3, h4, h5, h6, 
+    [data-testid="stMarkdownContainer"] h4, 
+    [data-testid="stMarkdownContainer"] h4 p {{
+        color: #ffffff !important; 
+        font-weight: 700 !important;
     }}
-    label, [data-testid="stWidgetLabel"] p {{
-        color: #cbd5e1 !important; font-weight: 600 !important; font-size: 14px !important;
+
+    label, 
+    [data-testid="stWidgetLabel"] p {{
+        color: #cbd5e1 !important; 
+        font-weight: 600 !important; 
+        font-size: 14px !important;
     }}
-    div[data-testid="stFormSubmitButton"] button, .stButton button, button[kind="primaryFormSubmit"] {{
+
+    div[data-testid="stFormSubmitButton"] button, 
+    .stButton button, 
+    button[kind="primaryFormSubmit"] {{
         background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%) !important;
-        color: #ffffff !important; font-weight: 700 !important; border: none !important;
-        border-radius: 12px !important; padding: 10px 20px !important;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important; width: 100% !important;
+        color: #ffffff !important; 
+        font-weight: 700 !important; 
+        border: none !important;
+        border-radius: 12px !important; 
+        padding: 10px 20px !important;
+        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important; 
+        width: 100% !important;
     }}
+
     .glass-card {{
-        background: rgba(255, 255, 255, 0.04); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px; padding: 25px 20px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3); margin-bottom: 25px;
+        background: rgba(255, 255, 255, 0.04); 
+        backdrop-filter: blur(12px); 
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08); 
+        border-radius: 24px; 
+        padding: 25px 20px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3); 
+        margin-bottom: 25px;
     }}
+
     .portal-btn {{
-        display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
-        color: #ffffff !important; font-family: 'Inter', system-ui, sans-serif; font-size: 13px;
-        font-weight: 700; padding: 10px 22px; border-radius: 12px; text-decoration: none;
+        display: inline-block; 
+        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+        color: #ffffff !important; 
+        font-family: 'Inter', system-ui, sans-serif; 
+        font-size: 13px;
+        font-weight: 700; 
+        padding: 10px 22px; 
+        border-radius: 12px; 
+        text-decoration: none;
         box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
     }}
-    [data-testid="stMetricValue"] {{ font-size: 26px !important; font-weight: 800; color: #06b6d4 !important; }}
-    [data-testid="stMetricLabel"] {{ color: #94a3b8 !important; }}
+
+    [data-testid="stMetricValue"] {{ 
+        font-size: 26px !important; 
+        font-weight: 800; 
+        color: #06b6d4 !important; 
+    }}
+
+    [data-testid="stMetricLabel"] {{ 
+        color: #94a3b8 !important; 
+    }}
 </style>
 """, unsafe_allow_html=True)
 
