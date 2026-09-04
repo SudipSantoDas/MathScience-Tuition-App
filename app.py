@@ -125,9 +125,50 @@ st.markdown(f"""
 def show_teacher_dashboard():
     # Everything inside here is pushed to the right by 1 Tab space!
     with st.sidebar:
-        st.title("Teacher Portal")
-        st.write("Logged in as: Teacher / Admin")
-        if st.button("Log Out", key="teacher_sidebar_logout"):
+        st.markdown("""
+            <style>
+            section[data-testid="stSidebar"] {
+                background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
+                border-right: 1px solid rgba(56, 189, 248, 0.15) !important;
+            }
+            .sidebar-profile-card {
+                background: rgba(15, 23, 42, 0.65);
+                backdrop-filter: blur(12px);
+                border: 1px solid rgba(56, 189, 248, 0.2);
+                border-radius: 14px;
+                padding: 14px;
+                margin-bottom: 15px;
+                text-align: center;
+            }
+            .user-badge {
+                display: inline-block;
+                background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                padding: 3px 10px;
+                border-radius: 20px;
+                margin-top: 5px;
+            }
+            div[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+                width: 100%;
+                border-radius: 10px !important;
+                background: rgba(239, 68, 68, 0.12) !important;
+                color: #f87171 !important;
+                border: 1px solid rgba(239, 68, 68, 0.3) !important;
+                font-weight: 600 !important;
+            }
+            </style>
+            <div class="sidebar-profile-card">
+                <div style="font-size: 26px; margin-bottom: 2px;">👨‍🏫</div>
+                <h4 style="color: #f1f5f9; margin: 0; font-size: 16px;">Teacher Portal</h4>
+                <span class="user-badge">Teacher / Admin</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("🚪 Log Out", key="teacher_sidebar_logout"):
             st.session_state.clear()
             st.rerun()
 
