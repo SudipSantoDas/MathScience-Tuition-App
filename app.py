@@ -86,11 +86,14 @@ st.markdown(f"""
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
         background-attachment: fixed !important;
     }}
-    visibility: visible !important;
-    display: block !important;
-    opacity: 1 !important;
-    z-index: 999999 !important;
-}}
+    .stApp {{
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
+            background-attachment: fixed !important;
+        }}
+        [data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
+            border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
+        }}
     [data-testid="stSidebar"] {{
     background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
     border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
