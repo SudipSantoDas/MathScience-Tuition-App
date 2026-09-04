@@ -35,41 +35,37 @@ st.set_page_config(
 # Hide Streamlit header, settings cog, and footer
 st.markdown("""
     <style>
+    /* Keep header active and transparent so the sidebar toggle is clickable */
     header[data-testid="stHeader"] {
-    background: transparent !important;
-    z-index: 99999 !important;
-}
-header[data-testid="stHeader"] {
-            background: transparent !important;
-            z-index: 99999 !important;
-        }
-        [data-testid="stSidebarCollapsedControl"] {
-            display: block !important;
-            visibility: visible !important;
-            z-index: 100000 !important;
-            color: #38bdf8 !important;
-        }
-        [data-testid="stSidebarCollapsedControl"] {
-            display: block !important;
-            visibility: visible !important;
-            z-index: 100000 !important;
-            color: #38bdf8 !important;
-        }
-        [data-testid="stSidebarCollapsedControl"] svg {
-            fill: #38bdf8 !important;
-            stroke: #38bdf8 !important;
-            width: 28px !important;
-            height: 28px !important;
-        }
-        div[data-testid="stToolbarActions"], div[data-testid="stDecoration"] {
-            display: none !important;
-        }
-        footer {display: none !important; visibility: hidden !important;}
-        div[class*="viewerBadge"] {display: none !important;}
-        .block-container {padding-top: 2rem !important; padding-bottom: 1rem !important;}
+        background: transparent !important;
+        z-index: 100000 !important;
+    }
+    
+    /* Ensure the sidebar toggle icon (chevron button) is visible and highlighted */
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stSidebarCollapsedControl"] button,
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        color: #38bdf8 !important;
+        z-index: 100001 !important;
+    }
+
+    [data-testid="stSidebarCollapsedControl"] svg,
+    [data-testid="collapsedControl"] svg {
+        fill: #38bdf8 !important;
+        stroke: #38bdf8 !important;
+        width: 28px !important;
+        height: 28px !important;
+    }
+
+    /* Clean Streamlit clutter */
+    div[data-testid="stToolbar"] { display: none !important; }
+    footer { display: none !important; }
+    div[class*="viewerBadge"] { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
-
 # Load local logo and base64 encode it for fluid rendering
 logo_b64_str = ""
 if os.path.exists("logo.jpg"):
@@ -100,8 +96,9 @@ st.markdown(f"""
     z-index: 999999 !important;
 }}
 [data-testid="stSidebar"] * {{
-    visibility: visible !important;
-    color: #f1f5f9 !important;
+    [data-testid="stSidebar"] {{
+    background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
+    border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
 }}
     [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h2 span, [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
         color: #ffffff !important; font-weight: 700 !important; font-size: 22px !important;
