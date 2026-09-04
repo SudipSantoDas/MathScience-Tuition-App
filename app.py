@@ -193,7 +193,12 @@ TEACHER_REGISTRY = {
     "teacher2@gmail.com": "pass456",         # Subscribed Teacher 2
     "druvvvv86@gmail.com": "yourpasswordhere" # 👈 ADD THIS LINE RIGHT HERE!
 }
-
+with st.sidebar:
+    st.title("Teacher Portal")
+    st.write("Logged in: Teacher / Admin")
+    if st.button("Log Out"):
+        st.session_state.clear()
+        st.rerun()
 df = st.session_state.student_db
 
 def render_notice_board():
