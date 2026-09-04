@@ -95,7 +95,6 @@ st.markdown(f"""
     opacity: 1 !important;
     z-index: 999999 !important;
 }}
-[data-testid="stSidebar"] * {{
     [data-testid="stSidebar"] {{
     background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
     border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
