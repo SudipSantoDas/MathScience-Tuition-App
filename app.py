@@ -127,7 +127,7 @@ def show_teacher_dashboard():
     with st.sidebar:
         st.title("Teacher Portal")
         st.write("Logged in as: Teacher / Admin")
-        if st.button("Log Out"):
+        if st.button("Log Out", key="teacher_sidebar_logout"):
             st.session_state.clear()
             st.rerun()
 
@@ -203,7 +203,7 @@ TEACHER_REGISTRY = {
 with st.sidebar:
     st.title("Teacher Portal")
     st.write("Logged in: Teacher / Admin")
-    if st.button("Log Out"):
+    if st.button("Log Out", key="teacher_main_logout"):
         st.session_state.clear()
         st.rerun()
 df = st.session_state.student_db
