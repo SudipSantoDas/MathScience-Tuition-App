@@ -37,10 +37,17 @@ st.markdown("""
     <style>
     header[data-testid="stHeader"] {
     background: transparent !important;
+    z-index: 99999 !important;
 }
 header[data-testid="stHeader"] {
             background: transparent !important;
             z-index: 99999 !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] {
+            display: block !important;
+            visibility: visible !important;
+            z-index: 100000 !important;
+            color: #38bdf8 !important;
         }
         [data-testid="stSidebarCollapsedControl"] {
             display: block !important;
@@ -84,9 +91,18 @@ st.markdown(f"""
         background-attachment: fixed !important;
     }}
     [data-testid="stSidebar"] {{
-        background-color: #0f172a !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
-    }}
+    background-color: #091426 !important;
+    background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
+    border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
+    visibility: visible !important;
+    display: block !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+}}
+[data-testid="stSidebar"] * {{
+    visibility: visible !important;
+    color: #f1f5f9 !important;
+}}
     [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h2 span, [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
         color: #ffffff !important; font-weight: 700 !important; font-size: 22px !important;
     }}
