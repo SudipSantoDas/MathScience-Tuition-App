@@ -28,15 +28,15 @@ if "logged_in" not in st.session_state:
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Tuition",
-    page_icon="🎓", 
-    layout="centered"
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 # Hide Streamlit header, settings cog, and footer
 st.markdown("""
     <style>
     header[data-testid="stHeader"] {display: none !important; visibility: hidden !important; height: 0 !important;}
     div[data-testid="stToolbar"] {display: none !important;}
-    [data-testid="collapsedControl"] {display: none !important;}
     footer {display: none !important; visibility: hidden !important;}
     div[class*="viewerBadge"] {display: none !important;}
     .block-container {padding-top: 1rem !important; padding-bottom: 1rem !important;}
