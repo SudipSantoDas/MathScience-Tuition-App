@@ -31,6 +31,17 @@ st.set_page_config(
     page_icon="🎓", 
     layout="centered"
 )
+# Hide Streamlit header, settings cog, and footer
+st.markdown("""
+    <style>
+    header[data-testid="stHeader"] {display: none !important; visibility: hidden !important; height: 0 !important;}
+    div[data-testid="stToolbar"] {display: none !important;}
+    [data-testid="collapsedControl"] {display: none !important;}
+    footer {display: none !important; visibility: hidden !important;}
+    div[class*="viewerBadge"] {display: none !important;}
+    .block-container {padding-top: 1rem !important; padding-bottom: 1rem !important;}
+    </style>
+""", unsafe_allow_html=True)
 
 # Load local logo and base64 encode it for fluid rendering
 logo_b64_str = ""
