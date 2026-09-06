@@ -5,17 +5,17 @@ import os
 import base64
 
 # ----------------------------------------------------
-# 1. PAGE CONFIGURATION (MUST BE FIRST STREAMLIT CALL)
+# 1. PAGE CONFIGURATION
 # ----------------------------------------------------
 st.set_page_config(
-    page_title="MathScience Tuition",
+    page_title="MathScience Tuition Academy",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ----------------------------------------------------
-# 2. SESSION STATE MANAGEMENT
+# 2. SESSION STATE MANAGEMENT (DATA PERSISTENCE)
 # ----------------------------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -24,16 +24,30 @@ if "user_role" not in st.session_state:
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 
-# Shared student roster dataset
+# Student Roster Database
 if "students_db" not in st.session_state:
     st.session_state.students_db = [
-        {"id": "STU101", "name": "Aarav Sharma", "grade": "Class 9 Science", "subject": "Science", "attendance": "94%"},
-        {"id": "STU102", "name": "Diya Patel", "grade": "Class 7 Olympiad", "subject": "Mathematics", "attendance": "98%"},
-        {"id": "STU103", "name": "Rohan Das", "grade": "Class 9 Science", "subject": "Science", "attendance": "89%"},
+        {"id": "STU101", "name": "Aarav Sharma", "grade": "Class 9 Science", "subject": "Science", "fee_status": "Paid", "fee_amount": 1500, "attendance": "94%"},
+        {"id": "STU102", "name": "Diya Patel", "grade": "Class 7 Olympiad", "subject": "Mathematics", "fee_status": "Pending", "fee_amount": 1200, "attendance": "98%"},
+        {"id": "STU103", "name": "Rohan Das", "grade": "Class 9 Science", "subject": "Science", "fee_status": "Paid", "fee_amount": 1500, "attendance": "89%"},
+    ]
+
+# Financial / Fee Ledger Transactions
+if "financial_records" not in st.session_state:
+    st.session_state.financial_records = [
+        {"tx_id": "TXN901", "student": "Aarav Sharma", "date": "2026-09-01", "amount": 1500, "type": "Tuition Fee", "method": "UPI / Online"},
+        {"tx_id": "TXN902", "student": "Rohan Das", "date": "2026-09-03", "amount": 1500, "type": "Tuition Fee", "method": "Cash"},
+    ]
+
+# Academy Notices
+if "notice_board" not in st.session_state:
+    st.session_state.notice_board = [
+        {"date": "2026-09-06", "title": "Academy Portal Launch", "content": "Welcome to the official MathScience Academy digital portal!"},
+        {"date": "2026-09-04", "title": "Class 9 Science Mock Test", "content": "Physics & Chemistry chapter tests scheduled for coming Sunday."},
     ]
 
 # ----------------------------------------------------
-# 3. LOGO ENCODING & STATIC ASSETS
+# 3. STATIC ASSETS (LOGO RESOLUTION)
 # ----------------------------------------------------
 logo_b64_str = ""
 if os.path.exists("logo.jpg"):
@@ -43,22 +57,22 @@ else:
     logo_b64_str = "https://mathscience.in/logo.jpg"
 
 # ----------------------------------------------------
-# 4. MASTER HIGH-CONTRAST CSS STYLING ENGINE
+# 4. MASTER HIGH-CONTRAST CSS STYLING
 # ----------------------------------------------------
 st.markdown(f"""
 <style>
-    /* 1. App Background */
+    /* Base Mobile Container */
     .stApp {{
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
         background-attachment: fixed !important;
     }}
 
-    /* 2. Global Text Legibility */
+    /* Global High Contrast Text */
     p, span, label, .stMarkdown p, [data-testid="stMarkdownContainer"] p {{
         color: #e2e8f0 !important;
     }}
 
-    /* 3. Streamlit Header & Visible Toggle Chevron */
+    /* Header & Mobile Sidebar Toggle */
     header[data-testid="stHeader"] {{
         background: transparent !important;
         z-index: 999991 !important;
@@ -77,7 +91,6 @@ st.markdown(f"""
         color: #38bdf8 !important;
     }}
 
-    /* Floating toggle support on mobile screens */
     [data-testid="collapsedControl"] {{
         display: flex !important;
         visibility: visible !important;
@@ -101,7 +114,7 @@ st.markdown(f"""
         height: 22px !important;
     }}
 
-    /* 4. High-Contrast Sidebar */
+    /* High-Contrast Mobile Sidebar */
     section[data-testid="stSidebar"] {{
         background-color: #0b1329 !important;
         background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
@@ -117,7 +130,7 @@ st.markdown(f"""
         font-weight: 700 !important;
     }}
 
-    /* 5. Dropdown Menus & Selectboxes (High Contrast Popup Fix) */
+    /* Dropdown Menus & Selectboxes Contrast Fix */
     div[data-baseweb="select"] > div {{
         background-color: #1e293b !important;
         border: 1px solid #334155 !important;
@@ -137,13 +150,13 @@ st.markdown(f"""
         color: #0284c7 !important;
     }}
 
-    /* 6. Typography & Headings */
+    /* Headings & Text Weights */
     h1, h2, h3, h4, h5, h6 {{
         color: #ffffff !important;
         font-weight: 700 !important;
     }}
 
-    /* 7. Form Action Buttons */
+    /* Buttons */
     div[data-testid="stFormSubmitButton"] button, 
     .stButton button, 
     button[kind="primaryFormSubmit"] {{
@@ -157,7 +170,16 @@ st.markdown(f"""
         width: 100% !important;
     }}
 
-    /* 8. Navigation Tabs */
+    /* Delete / Destructive Action Button Style */
+    button[kind="secondary"] {{
+        background: #ef4444 !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+    }}
+
+    /* Navigation Tabs */
     button[data-baseweb="tab"] {{
         color: #94a3b8 !important;
         font-weight: 600 !important;
@@ -168,7 +190,7 @@ st.markdown(f"""
         font-weight: 700 !important;
     }}
 
-    /* 9. Glass Cards & Expanders */
+    /* Cards & Expanders */
     [data-testid="stExpander"] {{
         background: rgba(255, 255, 255, 0.03) !important;
         border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -196,7 +218,17 @@ st.markdown(f"""
         box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
     }}
 
-    /* 10. Clean View & Balanced Padding */
+    /* Streamlit Metric Counters */
+    [data-testid="stMetricValue"] {{ 
+        font-size: 26px !important; 
+        font-weight: 800; 
+        color: #06b6d4 !important; 
+    }}
+    [data-testid="stMetricLabel"] {{ 
+        color: #94a3b8 !important; 
+    }}
+
+    /* Clutter cleanup */
     div[data-testid="stToolbar"] {{ display: none !important; }}
     footer {{ display: none !important; }}
     div[class*="viewerBadge"] {{ display: none !important; }}
@@ -219,7 +251,7 @@ def show_login_page():
         <div style="text-align: center; margin-bottom: 24px;">
             <img src="{logo_b64_str}" style="width: 72px; height: 72px; border-radius: 18px; margin-bottom: 12px; border: 2px solid #38bdf8;" />
             <h1 style="font-size: 26px; margin: 0 0 8px 0;">MathScience Academy</h1>
-            <p style="color: #cbd5e1; font-size: 14px; margin: 0;">Welcome! Please log in to securely manage your digital tuition roster.</p>
+            <p style="color: #cbd5e1; font-size: 14px; margin: 0;">Welcome! Please log in to securely access your portal.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -230,7 +262,7 @@ def show_login_page():
 
             if submit:
                 clean_email = email.strip().lower()
-                # Direct Role Allocation (No Dropdowns Needed)
+                # Unified Authentication Credentials
                 if clean_email == "teacher1@gmail.com" and password == "123456":
                     st.session_state.logged_in = True
                     st.session_state.user_role = "Teacher"
@@ -252,10 +284,10 @@ def show_login_page():
 def show_teacher_dashboard():
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-        <img src="{logo_b64_str}" style="width: 50px; height: 50px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
+        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
         <div>
-            <h2 style="margin: 0; font-size: 24px;">MathScience Tuition</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Instructor Console • Active Session</p>
+            <h2 style="margin: 0; font-size: 22px;">MathScience Tuition</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Teacher Desk • Operations Console</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -269,97 +301,198 @@ def show_teacher_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["👥 Student Management", "📅 Attendance Desk", "📢 Notice Board"])
+    tab1, tab2, tab3, tab4 = st.tabs(["👥 Student Management", "💰 Financial Desk", "📅 Attendance Desk", "📢 Notice Board"])
 
+    # --- TAB 1: STUDENT MANAGEMENT (ADD & DELETE) ---
     with tab1:
-        st.subheader("Academy Student Management Console")
-        df = pd.DataFrame(st.session_state.students_db)
-        st.dataframe(df, use_container_width=True)
+        st.subheader("Academy Student Roster")
+        if st.session_state.students_db:
+            df = pd.DataFrame(st.session_state.students_db)
+            st.dataframe(df[["id", "name", "grade", "subject", "fee_status", "attendance"]], use_container_width=True)
+        else:
+            st.info("No active students found in roster.")
 
+        # Expandable: Add Student
         with st.expander("➕ Add New Student to Roster"):
-            s_name = st.text_input("Student Full Name")
-            s_grade = st.selectbox("Grade / Batch", ["Class 7 Olympiad", "Class 9 Science", "Class 10 Board Prep"])
-            s_subject = st.text_input("Assigned Subject", value="Science")
-            
-            if st.button("Save Student", key="btn_save_student"):
-                if s_name.strip():
-                    st.session_state.students_db.append({
-                        "id": f"STU{len(st.session_state.students_db)+101}",
-                        "name": s_name.strip(),
-                        "grade": s_grade,
-                        "subject": s_subject.strip(),
-                        "attendance": "100%"
-                    })
-                    st.success(f"Added {s_name} to student records.")
-                    st.rerun()
-                else:
-                    st.warning("Please enter a valid student name.")
+            with st.form("add_student_form"):
+                s_name = st.text_input("Full Name")
+                s_grade = st.selectbox("Grade / Batch", ["Class 7 Olympiad", "Class 9 Science", "Class 10 Board Prep"])
+                s_subject = st.text_input("Assigned Subject", value="Science")
+                s_fee = st.number_input("Monthly Fee Amount (₹)", min_value=500, max_value=20000, value=1500, step=100)
+                add_btn = st.form_submit_button("Save Student to Records")
 
+                if add_btn:
+                    if s_name.strip():
+                        new_id = f"STU{len(st.session_state.students_db) + 101}"
+                        st.session_state.students_db.append({
+                            "id": new_id,
+                            "name": s_name.strip(),
+                            "grade": s_grade,
+                            "subject": s_subject.strip(),
+                            "fee_status": "Pending",
+                            "fee_amount": int(s_fee),
+                            "attendance": "100%"
+                        })
+                        st.success(f"Enrolled {s_name} (ID: {new_id}) successfully!")
+                        st.rerun()
+                    else:
+                        st.warning("Please provide a valid student name.")
+
+        # Expandable: Delete Student
+        with st.expander("🗑️ Delete Student from Roster"):
+            if st.session_state.students_db:
+                student_options = {f"{s['name']} ({s['id']})": s["id"] for s in st.session_state.students_db}
+                selected_label = st.selectbox("Select Student to Remove", list(student_options.keys()))
+                
+                col_del_1, col_del_2 = st.columns([2, 1])
+                with col_del_2:
+                    if st.button("Confirm Deletion", type="secondary", use_container_width=True):
+                        target_id = student_options[selected_label]
+                        st.session_state.students_db = [s for s in st.session_state.students_db if s["id"] != target_id]
+                        st.success(f"Removed student record successfully!")
+                        st.rerun()
+            else:
+                st.write("No students available to delete.")
+
+    # --- TAB 2: FINANCIAL SECTION (FEES & PAYMENTS) ---
     with tab2:
+        st.subheader("Tuition Fee Management & Records")
+        
+        # Financial metric summary cards
+        total_collected = sum(tx["amount"] for tx in st.session_state.financial_records)
+        pending_students = [s for s in st.session_state.students_db if s.get("fee_status") == "Pending"]
+        total_pending = sum(s.get("fee_amount", 1500) for s in pending_students)
+
+        col_f1, col_f2 = st.columns(2)
+        col_f1.metric("Total Fees Collected", f"₹{total_collected:,}")
+        col_f2.metric("Outstanding Due", f"₹{total_pending:,}")
+
+        st.markdown("#### Record Payment Collection")
+        with st.form("fee_payment_form"):
+            payer = st.selectbox("Select Student", [s["name"] for s in st.session_state.students_db])
+            amount_paid = st.number_input("Amount Paid (₹)", min_value=100, max_value=50000, value=1500, step=100)
+            pay_method = st.selectbox("Payment Mode", ["UPI / GPay / PhonePe", "Cash", "Bank Transfer", "Cheque"])
+            pay_notes = st.text_input("Transaction Note / Reference ID", value="Monthly Tuition Fee")
+            record_pay_btn = st.form_submit_button("Confirm Payment Receipt")
+
+            if record_pay_btn:
+                today_str = datetime.date.today().strftime("%Y-%m-%d")
+                new_tx = {
+                    "tx_id": f"TXN{len(st.session_state.financial_records)+901}",
+                    "student": payer,
+                    "date": today_str,
+                    "amount": int(amount_paid),
+                    "type": pay_notes,
+                    "method": pay_method
+                }
+                st.session_state.financial_records.append(new_tx)
+
+                # Update student fee status to Paid
+                for s in st.session_state.students_db:
+                    if s["name"] == payer:
+                        s["fee_status"] = "Paid"
+
+                st.success(f"Recorded ₹{amount_paid} payment for {payer}!")
+                st.rerun()
+
+        st.markdown("#### Transaction Log")
+        if st.session_state.financial_records:
+            tx_df = pd.DataFrame(st.session_state.financial_records)
+            st.dataframe(tx_df, use_container_width=True)
+
+    # --- TAB 3: ATTENDANCE DESK ---
+    with tab2 if False else tab3:
         st.subheader("Daily Attendance Register")
         today = datetime.date.today().strftime("%Y-%m-%d")
         st.write(f"Logging Record for: **{today}**")
-        
-        for student in st.session_state.students_db:
-            st.checkbox(f"{student['name']} ({student['grade']})", value=True, key=f"chk_{student['id']}")
-            
-        if st.button("Submit Attendance", key="btn_submit_attendance"):
-            st.success("Attendance synced successfully!")
 
-    with tab3:
-        st.subheader("Notice Board")
-        st.info("📢 Welcome to the new MathScience Academy digital Tuition Portal! Track student rosters, monitor test cycles, and register daily attendance seamlessly.")
+        if st.session_state.students_db:
+            for s in st.session_state.students_db:
+                st.checkbox(f"{s['name']} — {s['grade']} ({s['subject']})", value=True, key=f"att_chk_{s['id']}")
+            if st.button("Submit Attendance Register", key="btn_sub_att"):
+                st.success("Attendance submitted and synced with portal!")
+        else:
+            st.info("Enroll students in Tab 1 to track attendance.")
+
+    # --- TAB 4: NOTICE BOARD ---
+    with tab4:
+        st.subheader("Academy Notices")
+        for n in st.session_state.notice_board:
+            st.markdown(f"""
+            <div class="glass-card" style="padding: 16px; margin-bottom: 12px;">
+                <span style="color: #38bdf8; font-size: 12px; font-weight: 700;">{n['date']}</span>
+                <h4 style="margin: 4px 0 8px 0; font-size: 17px;">{n['title']}</h4>
+                <p style="margin: 0; color: #cbd5e1; font-size: 14px;">{n['content']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with st.expander("📢 Broadcast New Notice"):
+            n_title = st.text_input("Notice Headline")
+            n_body = st.text_area("Notice Message")
+            if st.button("Post Announcement"):
+                if n_title.strip() and n_body.strip():
+                    st.session_state.notice_board.insert(0, {
+                        "date": datetime.date.today().strftime("%Y-%m-%d"),
+                        "title": n_title.strip(),
+                        "content": n_body.strip()
+                    })
+                    st.success("Announcement published to notice board!")
+                    st.rerun()
 
 def show_admin_dashboard():
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-        <img src="{logo_b64_str}" style="width: 50px; height: 50px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
+        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
         <div>
-            <h2 style="margin: 0; font-size: 24px;">Academy Master Console</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Administrator Access • Full Permissions</p>
+            <h2 style="margin: 0; font-size: 22px;">Admin Master Console</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Executive Management • Full Academy Controls</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Enrolled Students", len(st.session_state.students_db))
-    col2.metric("Active Batches", "3")
-    col3.metric("System Health", "Operational")
+    total_revenue = sum(tx["amount"] for tx in st.session_state.financial_records)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Enrolled Students", len(st.session_state.students_db))
+    c2.metric("Total Revenue", f"₹{total_revenue:,}")
+    c3.metric("System Health", "Operational")
 
-    st.subheader("All Student Records")
-    df = pd.DataFrame(st.session_state.students_db)
-    st.dataframe(df, use_container_width=True)
+    st.subheader("Master Student Records")
+    st.dataframe(pd.DataFrame(st.session_state.students_db), use_container_width=True)
+
+    st.subheader("Master Financial Ledger")
+    st.dataframe(pd.DataFrame(st.session_state.financial_records), use_container_width=True)
 
 def show_parent_dashboard():
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-        <img src="{logo_b64_str}" style="width: 50px; height: 50px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
+        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
         <div>
-            <h2 style="margin: 0; font-size: 24px;">Parent Access Portal</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing: Aarav Sharma (Class 9 Science)</p>
+            <h2 style="margin: 0; font-size: 22px;">Parent Portal</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing Student Profile: Aarav Sharma</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("""
     <div class="glass-card">
-        <h3 style="margin-top:0; color:#38bdf8;">Academic Status Overview</h3>
+        <h3 style="margin-top:0; color:#38bdf8;">Academic & Tuition Status</h3>
         <p><strong>Student Name:</strong> Aarav Sharma</p>
-        <p><strong>Overall Attendance:</strong> 94%</p>
-        <p><strong>Upcoming Assessment:</strong> Physics Mid-Term (Next Week)</p>
-        <p><strong>Monthly Performance:</strong> Excellent (Grade A)</p>
+        <p><strong>Batch:</strong> Class 9 Science</p>
+        <p><strong>Attendance Percentage:</strong> 94%</p>
+        <p><strong>Monthly Fee Status:</strong> <span style="color:#4ade80; font-weight:700;">Paid (September 2026)</span></p>
+        <p><strong>Next Assessment:</strong> Physics Mid-Term (Next Week)</p>
     </div>
     """, unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# 6. ROUTER & SIDEBAR CONTROLS
+# 6. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
 if not st.session_state.logged_in:
     show_login_page()
 else:
     role = st.session_state.user_role
 
-    # Persistent Left Sidebar
+    # Dedicated Sidebar Profile & Logout
     with st.sidebar:
         st.markdown(f"""
         <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
@@ -376,7 +509,7 @@ else:
             st.session_state.user_email = ""
             st.rerun()
 
-    # Route automatically to the user's specific page
+    # Dynamic Route Guard
     if role == "Teacher":
         show_teacher_dashboard()
     elif role == "Admin":
