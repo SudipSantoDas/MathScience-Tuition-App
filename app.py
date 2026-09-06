@@ -548,20 +548,21 @@ def show_teacher_dashboard():
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     st.caption(f"Logging Record for: **{today_str}**")
 
-    # 1. Filter by specific Batch/Class
-    all_batches = sorted(list(set(s.get("grade", "General") for s in st.session_state.students_db)))
-    # Dynamic class filter with non-static placeholder
-    class_options = ["All Classes"] + sorted(list(set(s.get("grade", "") for s in st.session_state.students_db if s.get("grade"))))
+    # 1. Dynamic class filter with placeholder
+    registered_rooms = sorted(list(set(
+        s.get("grade", "").strip() for s in st.session_state.students_db if s.get("grade")
+    )))
 
     selected_class = st.selectbox(
         "Select Class / Room to Mark",
-        options=class_options,
+        options=registered_rooms,
         index=None,
-        placeholder="Choose Class, Room, or Grade..."
+        placeholder="Choose Class, Room, or Grade...",
+        key="attendance_class_selector"
     )
 
-    # Filter roster only if user picks a class; otherwise default to all
-    if selected_class is None or selected_class == "All Classes":
+    # Filter roster: show all students if none picked, otherwise filter by room
+    if not selected_class:
         active_roster = st.session_state.students_db
     else:
         active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
