@@ -498,68 +498,53 @@ def show_parent_dashboard():
     """, unsafe_allow_html=True)
 
 # ----------------------------------------------------
+# ----------------------------------------------------
 # 6. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
-if not st.session_state.logged_in:
+if not st.session_state.get("logged_in", False):
     show_login_page()
 else:
-    role = st.session_state.user_role
+    role = st.session_state.get("user_role")
 
-    # Dedicated Sidebar Profile & Logout
+    # Set default view if not already selected
+    if "active_view" not in st.session_state or st.session_state.active_view is None:
+        st.session_state.active_view = role
+
+    # Dedicated Left Sidebar
     with st.sidebar:
         st.markdown(f"""
         <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
             <div style="display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%); color: #ffffff; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 8px;">
                 {role} Mode
             </div>
-            <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{st.session_state.user_email}</p>
+            <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{st.session_state.get('user_email', '')}</p>
         </div>
         """, unsafe_allow_html=True)
 
+        # Admin-exclusive sidebar switcher
+        if role == "Admin":
+            st.markdown("### 🛠️ Admin Navigation")
+            pages = ["Admin", "Teacher", "Parent"]
+            current_idx = pages.index(st.session_state.active_view) if st.session_state.active_view in pages else 0
+            selected = st.selectbox("Go to Desk:", pages, index=current_idx, key="admin_sidebar_nav")
+            if selected != st.session_state.active_view:
+                st.session_state.active_view = selected
+                st.rerun()
+
         if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.user_role = None
-            st.session_state.user_email = ""
+            st.session_state.clear()
             st.rerun()
 
-    # Dynamic Route Guard
-    if role == "Teacher":
-        show_teacher_dashboard()
-   # If logged in as Admin, show a menu to switch between all pages
-if st.session_state.user_role == "Admin":
-    with st.sidebar:
-        st.markdown("### 🛠️ Admin Controls")
-        chosen_page = st.selectbox(
-            "Go to Page:",
-            ["Admin Console", "Teacher Desk", "Parent Portal"]
-        )
-else:
-    # Teachers and Parents stay locked to their own role
-    chosen_page = st.session_state.user_role
+    # Determine view to render
+    current_view = st.session_state.active_view if role == "Admin" else role
 
-# Now show the page selected above:
-if chosen_page in ["Admin Console", "Admin"]:
-    show_admin_dashboard()
-elif chosen_page in ["Teacher Desk", "Teacher"]:
-    show_teacher_dashboard()
-elif chosen_page in ["Parent Portal", "Parent"]:
-    show_parent_dashboard()
-# ----------------------------------------------------
-# MAIN APP VIEW ROUTER
-# ----------------------------------------------------
-if not st.session_state.get("logged_in", False):
-    show_login_page()
-else:
-    # Default view matches the logged-in role if not explicitly switched
-    current_view = st.session_state.get("active_view", st.session_state.user_role)
-
-    # If an Admin switched to another view, show a floating return bar at the top
-    if st.session_state.user_role == "Admin" and current_view != "Admin":
-        if st.button("⬅️ Back to Admin Master Console", use_container_width=True):
+    # Admin return header if inspecting another desk
+    if role == "Admin" and current_view != "Admin":
+        if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
             st.session_state.active_view = "Admin"
             st.rerun()
 
-    # Render selected desk
+    # Strict single-dashboard rendering
     if current_view == "Teacher":
         show_teacher_dashboard()
     elif current_view == "Parent":
