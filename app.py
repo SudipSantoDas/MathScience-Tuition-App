@@ -450,6 +450,19 @@ def show_admin_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
+    # 1-Tap Perspective Switcher for Admin
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("👨‍🏫 Open Teacher Desk", use_container_width=True):
+            st.session_state.active_view = "Teacher"
+            st.rerun()
+    with c2:
+        if st.button("👨‍👩‍👦 Open Parent Portal", use_container_width=True):
+            st.session_state.active_view = "Parent"
+            st.rerun()
+
+    st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
+
     total_revenue = sum(tx["amount"] for tx in st.session_state.financial_records)
     c1, c2, c3 = st.columns(3)
     c1.metric("Enrolled Students", len(st.session_state.students_db))
@@ -531,3 +544,25 @@ elif chosen_page in ["Teacher Desk", "Teacher"]:
     show_teacher_dashboard()
 elif chosen_page in ["Parent Portal", "Parent"]:
     show_parent_dashboard()
+# ----------------------------------------------------
+# MAIN APP VIEW ROUTER
+# ----------------------------------------------------
+if not st.session_state.get("logged_in", False):
+    show_login_page()
+else:
+    # Default view matches the logged-in role if not explicitly switched
+    current_view = st.session_state.get("active_view", st.session_state.user_role)
+
+    # If an Admin switched to another view, show a floating return bar at the top
+    if st.session_state.user_role == "Admin" and current_view != "Admin":
+        if st.button("⬅️ Back to Admin Master Console", use_container_width=True):
+            st.session_state.active_view = "Admin"
+            st.rerun()
+
+    # Render selected desk
+    if current_view == "Teacher":
+        show_teacher_dashboard()
+    elif current_view == "Parent":
+        show_parent_dashboard()
+    else:
+        show_admin_dashboard()
