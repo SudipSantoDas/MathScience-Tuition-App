@@ -292,6 +292,70 @@ def show_teacher_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
+    # ----------------------------------------------------
+    # DYNAMIC CLASSROOM CREATOR & WORKSPACE SELECTOR
+    # ----------------------------------------------------
+    current_user = st.session_state.get("user_email", "default_teacher")
+    if "classrooms" not in st.session_state:
+        st.session_state.classrooms = {}
+
+    if current_user not in st.session_state.classrooms:
+        st.session_state.classrooms[current_user] = [
+            {"room_id": "RM-001", "title": "Class 11", "subject": "Physics", "section": "Batch A", "fee": 1500}
+        ]
+
+    user_rooms = st.session_state.classrooms[current_user]
+
+    with st.expander("➕ Create New Classroom / Batch", expanded=False):
+        with st.form("new_classroom_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                room_title = st.text_input("Class / Grade Level", placeholder="e.g., Class 11, Grade 8, AP Bio")
+            with c2:
+                room_subject = st.text_input("Subject", placeholder="e.g., Physics, Mathematics, Science")
+            
+            c3, c4 = st.columns(2)
+            with c3:
+                room_code = st.text_input("Room / Section", placeholder="e.g., Batch A, Evening Lab")
+            with c4:
+                monthly_fee = st.number_input("Standard Monthly Fee", min_value=0, value=1500, step=100)
+
+            create_btn = st.form_submit_button("Register Classroom", use_container_width=True)
+
+            if create_btn:
+                if room_title.strip() and room_subject.strip():
+                    new_room = {
+                        "room_id": f"RM-{len(user_rooms) + 1:03d}",
+                        "title": room_title.strip(),
+                        "subject": room_subject.strip(),
+                        "section": room_code.strip() or "General",
+                        "fee": monthly_fee
+                    }
+                    user_rooms.append(new_room)
+                    st.success(f"Classroom '{room_title} - {room_subject}' created successfully!")
+                    st.rerun()
+                else:
+                    st.warning("Please specify both a Class Level and a Subject.")
+
+    # Classroom Selector Bar
+    if user_rooms:
+        room_labels = [f"{r['title']} — {r['subject']} ({r['section']})" for r in user_rooms]
+        selected_label = st.selectbox("Select Active Classroom to Manage:", room_labels)
+        active_room = user_rooms[room_labels.index(selected_label)]
+
+        st.markdown(f"""
+        <div class="glass-card" style="padding: 12px 18px; margin-bottom: 20px; border-color: rgba(56, 189, 248, 0.2);">
+            <span style="color: #38bdf8; font-weight: 700;">Active Class:</span> 
+            <strong>{active_room['title']}</strong> | Subject: <strong>{active_room['subject']}</strong> | Batch: <strong>{active_room['section']}</strong>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ----------------------------------------------------
+    # TABS (Student Management, Attendance, Financial Desk)
+    # ----------------------------------------------------
+    tab1, tab2, tab3 = st.tabs(["👥 Student Management", "📅 Attendance Desk", "💰 Financial Desk"])
+    # ... your existing tab logic continues here ...
+
     st.markdown("""
     <div class="glass-card" style="text-align: center;">
         <span style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">PREMIUM PRIVATE PORTAL</span>
