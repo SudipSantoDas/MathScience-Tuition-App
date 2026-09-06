@@ -438,7 +438,6 @@ def show_teacher_dashboard():
                     })
                     st.success("Announcement published to notice board!")
                     st.rerun()
-
 def show_admin_dashboard():
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
@@ -453,11 +452,11 @@ def show_admin_dashboard():
     # 1-Tap Perspective Switcher for Admin
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("👨‍🏫 Open Teacher Desk", use_container_width=True):
+        if st.button("👨‍🏫 Open Teacher Desk", key="btn_switch_to_teacher", use_container_width=True):
             st.session_state.active_view = "Teacher"
             st.rerun()
     with c2:
-        if st.button("👨‍👩‍👦 Open Parent Portal", use_container_width=True):
+        if st.button("👨‍👩‍👦 Open Parent Portal", key="btn_switch_to_parent", use_container_width=True):
             st.session_state.active_view = "Parent"
             st.rerun()
 
@@ -521,22 +520,33 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-        # Admin-exclusive sidebar switcher
+    # Admin-exclusive sidebar switcher
         if role == "Admin":
             st.markdown("### 🛠️ Admin Navigation")
             pages = ["Admin", "Teacher", "Parent"]
-            current_idx = pages.index(st.session_state.active_view) if st.session_state.active_view in pages else 0
-            selected = st.selectbox("Go to Desk:", pages, index=current_idx, key="admin_sidebar_nav")
-            if selected != st.session_state.active_view:
-                st.session_state.active_view = selected
-                st.rerun()
+            
+            # Keep sidebar selectbox synced with button clicks
+            if st.session_state.get("active_view") not in pages:
+                st.session_state.active_view = "Admin"
+
+            def sync_sidebar_desk():
+                st.session_state.active_view = st.session_state.admin_sidebar_nav
+
+            current_idx = pages.index(st.session_state.active_view)
+            st.selectbox(
+                "Go to Desk:",
+                pages,
+                index=current_idx,
+                key="admin_sidebar_nav",
+                on_change=sync_sidebar_desk
+            )
 
         if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
             st.session_state.clear()
             st.rerun()
 
     # Determine view to render
-    current_view = st.session_state.active_view if role == "Admin" else role
+    current_view = st.session_state.get("active_view", "Admin") if role == "Admin" else role
 
     # Admin return header if inspecting another desk
     if role == "Admin" and current_view != "Admin":
