@@ -84,7 +84,7 @@ st.markdown(f"""
 <style>
     /* 1. Base App Background */
     .stApp {{
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
+        background: #020617 !important;
         background-attachment: fixed !important;
     }}
 
