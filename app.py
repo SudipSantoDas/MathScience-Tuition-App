@@ -380,7 +380,7 @@ def show_teacher_dashboard():
         with st.expander("➕ Add New Student to Roster"):
             with st.form("add_student_form"):
                 s_name = st.text_input("Full Name")
-                s_grade = st.selectbox("Grade / Batch", ["Class 7 Olympiad", "Class 9 Science", "Class 10 Board Prep"])
+                s_grade = st.text_input("Grade / Batch / Room", placeholder="e.g., Class 11 Physics, Grade 8, Room 101")
                 s_subject = st.text_input("Assigned Subject", value="Science")
                 s_fee = st.number_input("Monthly Fee Amount (₹)", min_value=500, max_value=20000, value=1500, step=100)
                 add_btn = st.form_submit_button("Save Student to Records")
