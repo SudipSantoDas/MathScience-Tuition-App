@@ -512,12 +512,22 @@ else:
     # Dynamic Route Guard
     if role == "Teacher":
         show_teacher_dashboard()
-    elif role == "Admin":
-        show_admin_dashboard()
-    elif role == "Parent":
-        show_parent_dashboard()
-    else:
-        st.error("Unknown user role.")
-        if st.button("Return to Login"):
-            st.session_state.clear()
-            st.rerun()
+   # If logged in as Admin, show a menu to switch between all pages
+if st.session_state.user_role == "Admin":
+    with st.sidebar:
+        st.markdown("### 🛠️ Admin Controls")
+        chosen_page = st.selectbox(
+            "Go to Page:",
+            ["Admin Console", "Teacher Desk", "Parent Portal"]
+        )
+else:
+    # Teachers and Parents stay locked to their own role
+    chosen_page = st.session_state.user_role
+
+# Now show the page selected above:
+if chosen_page in ["Admin Console", "Admin"]:
+    show_admin_dashboard()
+elif chosen_page in ["Teacher Desk", "Teacher"]:
+    show_teacher_dashboard()
+elif chosen_page in ["Parent Portal", "Parent"]:
+    show_parent_dashboard()
