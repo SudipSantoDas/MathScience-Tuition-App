@@ -84,7 +84,7 @@ st.markdown(f"""
 <style>
     /* 1. Base App Background */
     .stApp {{
-        background: #020617 !important;
+        background: #f8fafc !important;
         background-attachment: fixed !important;
     }}
 
