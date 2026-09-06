@@ -131,7 +131,7 @@ st.markdown(f"""
     }}
 
     /* Dropdown Menus & Selectboxes Contrast Fix */
-    div[data-baseweb="select"] > div {{
+   div[data-baseweb="select"] > div {{
         background-color: #1e293b !important;
         border: 1px solid #334155 !important;
         color: #ffffff !important;
@@ -148,6 +148,44 @@ st.markdown(f"""
     ul[data-baseweb="menu"] li[aria-selected="true"] {{
         background-color: #e0f2fe !important;
         color: #0284c7 !important;
+    }}
+
+    /* Form Input Fields & Visibility Fix */
+    div[data-baseweb="input"] > div,
+    input.st-bc,
+    input[type="text"],
+    input[type="number"] {{
+        background-color: #0f172a !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        border: 1.5px solid #334155 !important;
+        font-weight: 600 !important;
+    }}
+
+    input::placeholder {{
+        color: #94a3b8 !important;
+        -webkit-text-fill-color: #94a3b8 !important;
+        opacity: 1 !important;
+    }}
+
+    div[data-testid="stNumberInput"] button {{
+        background-color: #1e293b !important;
+        color: #38bdf8 !important;
+        border: 1px solid #334155 !important;
+    }}
+
+    /* Expander Header Text Visibility Fix */
+    [data-testid="stExpander"] summary {{
+        background: #1e293b !important;
+        border-radius: 12px 12px 0 0 !important;
+    }}
+    [data-testid="stExpander"] summary * {{
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 16px !important;
+    }}
+    [data-testid="stExpander"] summary svg {{
+        fill: #38bdf8 !important;
     }}
 
     /* Headings & Text Weights */
@@ -240,7 +278,6 @@ st.markdown(f"""
     }}
 </style>
 """, unsafe_allow_html=True)
-
 # ----------------------------------------------------
 # 5. VIEW CONTROLLERS
 # ----------------------------------------------------
