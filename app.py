@@ -541,20 +541,69 @@ def show_teacher_dashboard():
             tx_df = pd.DataFrame(st.session_state.financial_records)
             st.dataframe(tx_df, use_container_width=True)
 
-    # --- TAB 3: ATTENDANCE DESK ---
-    with tab2 if False else tab3:
-        st.subheader("Daily Attendance Register")
-        today = datetime.date.today().strftime("%Y-%m-%d")
-        st.write(f"Logging Record for: **{today}**")
+    # ----------------------------------------------------
+    # ATTENDANCE DESK IMPLEMENTATION
+    # ----------------------------------------------------
+    st.subheader("Daily Attendance Register")
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    st.caption(f"Logging Record for: **{today_str}**")
 
-        if st.session_state.students_db:
-            for s in st.session_state.students_db:
-                st.checkbox(f"{s['name']} — {s['grade']} ({s['subject']})", value=True, key=f"att_chk_{s['id']}")
-            if st.button("Submit Attendance Register", key="btn_sub_att"):
-                st.success("Attendance submitted and synced with portal!")
-        else:
-            st.info("Enroll students in Tab 1 to track attendance.")
+    # 1. Filter by specific Batch/Class
+    all_batches = sorted(list(set(s.get("grade", "General") for s in st.session_state.students_db)))
+    selected_class = st.selectbox("Select Class / Room to Mark", ["All Classes"] + all_batches)
 
+    # Filter roster
+    if selected_class == "All Classes":
+        active_roster = st.session_state.students_db
+    else:
+        active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
+
+    # Quick Selection Buttons
+    col_a, col_b = st.columns(2)
+    with col_a:
+        mark_all = st.button("✅ Mark All Present", use_container_width=True)
+    with col_b:
+        clear_all = st.button("⭕ Clear All", use_container_width=True)
+
+    # 2. Checkbox Register
+    attendance_status = {}
+    st.write("---")
+    for s in active_roster:
+        s_id = s["id"]
+        # Default status handling
+        default_val = True
+        if clear_all:
+            default_val = False
+        elif mark_all:
+            default_val = True
+
+        attendance_status[s_id] = st.checkbox(
+            f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
+            value=default_val,
+            key=f"att_check_{s_id}_{today_str}"
+        )
+
+    st.write("---")
+
+    # 3. Submit and Store
+    if st.button("Submit Attendance Register", use_container_width=True, key="submit_att_btn"):
+        if "attendance_logs" not in st.session_state:
+            st.session_state.attendance_logs = {}
+
+        present_list = [s["name"] for s in active_roster if attendance_status.get(s["id"])]
+        absent_list = [s["name"] for s in active_roster if not attendance_status.get(s["id"])]
+
+        # Save to date key
+        st.session_state.attendance_logs[today_str] = {
+            "present": present_list,
+            "absent": absent_list,
+            "class": selected_class
+        }
+
+        st.success(f"Attendance recorded! Present: {len(present_list)} | Absent: {len(absent_list)}")
+
+        if absent_list:
+            st.warning(f"Absent Students Today: {', '.join(absent_list)}")
     # --- TAB 4: NOTICE BOARD ---
     with tab4:
         st.subheader("Academy Notices")
