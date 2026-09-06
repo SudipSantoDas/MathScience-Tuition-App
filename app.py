@@ -28,116 +28,225 @@ st.set_page_config(
     page_title="MathScience Tuition",
     page_icon="🎓",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
+# ==============================================================================
+# 💎 MATHSCIENCE PREMIUM HIGH-CONTRAST UI ENGINE (MOBILE WEBVIEW OPTIMIZED)
+# ==============================================================================
 st.markdown("""
 <style>
-    /* 1. App Background */
+    /* Google Font Import */
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+
+    /* 1. Global App Canvas */
     .stApp {
-        background: radial-gradient(circle at top right, #0e2a47 0%, #030712 70%) !important;
+        background: radial-gradient(circle at 80% 20%, #172554 0%, #0b0f19 55%, #050811 100%) !important;
         background-attachment: fixed !important;
+        color: #f8fafc !important;
     }
 
-    /* 2. Global High-Contrast Typography */
-    p, span, label, .stMarkdown p, [data-testid="stMarkdownContainer"] p {
-        color: #e2e8f0 !important;
-    }
-    
-    h1, h2, h3, h4, h5, h6,
-    [data-testid="stMarkdownContainer"] h4, 
-    [data-testid="stMarkdownContainer"] h4 p {
-        color: #ffffff !important; 
-        font-weight: 700 !important;
+    /* 2. Seamless Header & Floating Mobile Toggle */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        z-index: 99999 !important;
     }
 
-    /* 3. Mobile Floating Navigation Bar */
-    .mobile-nav-wrapper {
-        background: rgba(15, 23, 42, 0.75);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        border: 1px solid rgba(56, 189, 248, 0.25);
-        border-radius: 16px;
-        padding: 12px 14px;
-        margin-bottom: 20px;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    /* Mobile Sidebar Toggle Button */
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        position: fixed !important;
+        top: 14px !important;
+        left: 14px !important;
+        z-index: 100000 !important;
+    }
+    [data-testid="collapsedControl"] button {
+        background: #0284c7 !important;
+        border: 2px solid #38bdf8 !important;
+        border-radius: 12px !important;
+        width: 44px !important;
+        height: 44px !important;
+        box-shadow: 0 4px 20px rgba(56, 189, 248, 0.45) !important;
+        transition: transform 0.2s ease;
+    }
+    [data-testid="collapsedControl"] button:active {
+        transform: scale(0.95);
+    }
+    [data-testid="collapsedControl"] svg {
+        fill: #ffffff !important;
+        stroke: #ffffff !important;
+        width: 22px !important;
+        height: 22px !important;
     }
 
-    /* 4. Glass Cards & Portal Actions */
-    .glass-card {
-        background: rgba(255, 255, 255, 0.04);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 22px 18px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-        margin-bottom: 20px;
+    /* 3. High-End Sidebar Architecture */
+    section[data-testid="stSidebar"] {
+        background: #050811 !important;
+        background-color: #050811 !important;
+        border-right: 1.5px solid rgba(56, 189, 248, 0.3) !important;
+        box-shadow: 10px 0 35px rgba(0, 0, 0, 0.8) !important;
     }
-
-    .portal-btn {
-        display: inline-block;
-        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+    section[data-testid="stSidebar"] > div {
+        background: transparent !important;
+        padding-top: 2rem !important;
+    }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
         color: #ffffff !important;
-        font-family: 'Inter', system-ui, sans-serif;
-        font-size: 13px;
-        font-weight: 700;
-        padding: 10px 22px;
-        border-radius: 12px;
-        text-decoration: none;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+        font-weight: 800 !important;
+        letter-spacing: -0.02em !important;
+    }
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+        color: #38bdf8 !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
     }
 
-    /* 5. Modern Buttons */
-    div[data-testid="stFormSubmitButton"] button, 
-    .stButton button, 
+    /* 4. Complete Typography Legibility Fix */
+    p, span, div, li {
+        color: #e2e8f0;
+    }
+    .stMarkdown p, [data-testid="stMarkdownContainer"] p {
+        color: #cbd5e1 !important;
+        font-size: 15px;
+        line-height: 1.6;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em !important;
+    }
+
+    /* 5. Inputs, Selectboxes & Form Fields */
+    label, [data-testid="stWidgetLabel"] p {
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+        font-size: 13px !important;
+        margin-bottom: 4px !important;
+    }
+    input, textarea, [data-baseweb="select"] {
+        background-color: rgba(15, 23, 42, 0.7) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        color: #ffffff !important;
+        border-radius: 12px !important;
+    }
+    input:focus, textarea:focus {
+        border-color: #38bdf8 !important;
+        box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25) !important;
+    }
+
+    /* 6. Navigation Tabs */
+    button[data-baseweb="tab"] {
+        background: transparent !important;
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+        padding: 10px 18px !important;
+        border-radius: 10px !important;
+        border: none !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #38bdf8 !important;
+        font-weight: 700 !important;
+        background: rgba(56, 189, 248, 0.1) !important;
+    }
+    div[data-baseweb="tab-highlight"] {
+        background-color: #38bdf8 !important;
+        height: 3px !important;
+        border-radius: 2px !important;
+    }
+
+    /* 7. Glass Cards & Modules */
+    .glass-card {
+        background: rgba(15, 23, 42, 0.65) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 20px !important;
+        padding: 24px 22px !important;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45) !important;
+        margin-bottom: 24px !important;
+    }
+
+    /* 8. Modern Glass Expanders */
+    [data-testid="stExpander"] {
+        background: rgba(15, 23, 42, 0.5) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 14px !important;
+        margin-bottom: 12px !important;
+    }
+    [data-testid="stExpander"] details summary p,
+    [data-testid="stExpander"] p,
+    [data-testid="stExpander"] span {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+    }
+
+    /* 9. Buttons & Interactive Calls-to-Action */
+    div[data-testid="stFormSubmitButton"] button,
+    .stButton button,
     button[kind="primaryFormSubmit"] {
         background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%) !important;
         color: #ffffff !important;
         font-weight: 700 !important;
         border: none !important;
         border-radius: 12px !important;
-        padding: 10px 20px !important;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important;
+        padding: 12px 24px !important;
+        box-shadow: 0 4px 18px rgba(2, 132, 199, 0.35) !important;
         width: 100% !important;
+        transition: all 0.2s ease !important;
+    }
+    div[data-testid="stFormSubmitButton"] button:hover,
+    .stButton button:hover {
+        opacity: 0.95 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 8px 24px rgba(2, 132, 199, 0.45) !important;
     }
 
-    /* 6. Tabs & Expanders */
-    button[data-baseweb="tab"] {
-        color: #94a3b8 !important;
-        font-weight: 600 !important;
-        font-size: 15px !important;
+    .portal-btn {
+        display: inline-block;
+        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+        color: #ffffff !important;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 11px 24px;
+        border-radius: 12px;
+        text-decoration: none;
+        box-shadow: 0 4px 16px rgba(2, 132, 199, 0.35);
     }
-    button[data-baseweb="tab"][aria-selected="true"] {
+
+    /* 10. Metric KPIs */
+    [data-testid="stMetricValue"] {
+        font-size: 28px !important;
+        font-weight: 800 !important;
         color: #38bdf8 !important;
-        font-weight: 700 !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #94a3b8 !important;
+        font-size: 13px !important;
     }
 
-    [data-testid="stSidebar"] {
-        background-color: #0b1329 !important;
-        background: #0b1329 !important;
-        border-bottom: 2px solid rgba(56, 189, 248, 0.35) !important;
-        padding-top: 1rem !important;
-    }
-
-    /* 7. Metric KPIs */
-    [data-testid="stMetricValue"] { 
-        font-size: 26px !important; 
-        font-weight: 800; 
-        color: #06b6d4 !important; 
-    }
-    [data-testid="stMetricLabel"] { 
-        color: #94a3b8 !important; 
-    }
-
-    /* 8. Hide Streamlit Web Clutter */
-    header[data-testid="stHeader"] { background: transparent !important; }
+    /* 11. Clutter Removal & Mobile Viewport Padding */
     div[data-testid="stToolbar"] { display: none !important; }
     footer { display: none !important; }
     div[class*="viewerBadge"] { display: none !important; }
+
+    .block-container {
+        padding-top: 3.5rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
-
 # Assets & URLs
 logo_b64_str = ""
 if os.path.exists("logo.jpg"):
