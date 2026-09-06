@@ -7,7 +7,7 @@ import base64
 from supabase import create_client, Client
 
 # ==============================================================================
-# 🌐 CONNECT TO YOUR CLOUD DATABASE
+# 🌐 CONNECT TO SUPABASE CLOUD DATABASE
 # ==============================================================================
 SUPABASE_URL = "https://kzremjjivpkvbbmeqkzk.supabase.co"
 SUPABASE_KEY = "sb_publishable_n7PGTD-wEjjlmMhjsl4d-g_Y4HT_n7PGTD"
@@ -15,35 +15,35 @@ SUPABASE_KEY = "sb_publishable_n7PGTD-wEjjlmMhjsl4d-g_Y4HT_n7PGTD"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==============================================================================
-# 1. SECURITY GUARD (MULTI-USER SESSION STATE)
+# 1. SECURITY & SESSION INITIALIZATION
 # ==============================================================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_role = None
 
 # ==============================================================================
-# 2. PAGE CONFIGURATION & MASTER CONSOLIDATED STYLING
+# 2. PAGE CONFIGURATION & UNIFIED STYLING ENGINE
 # ==============================================================================
 st.set_page_config(
     page_title="MathScience Tuition",
     page_icon="🎓",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 st.markdown("""
 <style>
-    /* 1. Base App Background */
+    /* 1. App Background */
     .stApp {
         background: radial-gradient(circle at top right, #0e2a47 0%, #030712 70%) !important;
         background-attachment: fixed !important;
     }
 
-    /* 2. Universal Readability */
+    /* 2. Global High-Contrast Typography */
     p, span, label, .stMarkdown p, [data-testid="stMarkdownContainer"] p {
         color: #e2e8f0 !important;
     }
-
+    
     h1, h2, h3, h4, h5, h6,
     [data-testid="stMarkdownContainer"] h4, 
     [data-testid="stMarkdownContainer"] h4 p {
@@ -51,50 +51,58 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* 3. High-Contrast Sidebar */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
-        border-right: 2px solid #38bdf8 !important;
+    /* 3. Mobile Floating Navigation Bar */
+    .mobile-nav-wrapper {
+        background: rgba(15, 23, 42, 0.75);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 16px;
+        padding: 12px 14px;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
     }
 
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
-        color: #38bdf8 !important;
+    /* 4. Glass Cards & Portal Actions */
+    .glass-card {
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 22px 18px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+        margin-bottom: 20px;
+    }
+
+    .portal-btn {
+        display: inline-block;
+        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+        color: #ffffff !important;
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 10px 22px;
+        border-radius: 12px;
+        text-decoration: none;
+        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+    }
+
+    /* 5. Modern Buttons */
+    div[data-testid="stFormSubmitButton"] button, 
+    .stButton button, 
+    button[kind="primaryFormSubmit"] {
+        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%) !important;
+        color: #ffffff !important;
         font-weight: 700 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 10px 20px !important;
+        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important;
+        width: 100% !important;
     }
 
-    /* 4. High-Visibility Mobile Toggle Icon */
-    header[data-testid="stHeader"] {
-        background: transparent !important;
-        z-index: 999990 !important;
-    }
-
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        position: fixed !important;
-        top: 14px !important;
-        left: 14px !important;
-        z-index: 999999 !important;
-    }
-
-    [data-testid="collapsedControl"] button {
-        background: #0284c7 !important;
-        border: 2px solid #38bdf8 !important;
-        border-radius: 50% !important;
-        width: 44px !important;
-        height: 44px !important;
-        box-shadow: 0 0 15px rgba(56, 189, 248, 0.6) !important;
-    }
-
-    [data-testid="collapsedControl"] svg {
-        fill: #ffffff !important;
-        stroke: #ffffff !important;
-        width: 24px !important;
-        height: 24px !important;
-    }
-
-    /* 5. Navigation Tabs & Expanders */
+    /* 6. Tabs & Expanders */
     button[data-baseweb="tab"] {
         color: #94a3b8 !important;
         font-weight: 600 !important;
@@ -111,74 +119,21 @@ st.markdown("""
         border-radius: 12px !important;
     }
 
-    /* 6. Buttons & Cards */
-    div[data-testid="stFormSubmitButton"] button, 
-    .stButton button, 
-    button[kind="primaryFormSubmit"] {
-        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%) !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 12px !important;
-        padding: 10px 20px !important;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important;
-        width: 100% !important;
+    /* 7. Metric KPIs */
+    [data-testid="stMetricValue"] { 
+        font-size: 26px !important; 
+        font-weight: 800; 
+        color: #06b6d4 !important; 
+    }
+    [data-testid="stMetricLabel"] { 
+        color: #94a3b8 !important; 
     }
 
-    .glass-card {
-        background: rgba(255, 255, 255, 0.04);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 24px;
-        padding: 25px 20px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        margin-bottom: 25px;
-    }
-
-    .portal-btn {
-        display: inline-block;
-        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
-        color: #ffffff !important;
-        font-family: 'Inter', system-ui, sans-serif;
-        font-size: 13px;
-        font-weight: 700;
-        padding: 10px 22px;
-        border-radius: 12px;
-        text-decoration: none;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
-    }
-
-    .sidebar-profile-card {
-        background: rgba(15, 23, 42, 0.65);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(56, 189, 248, 0.2);
-        border-radius: 14px;
-        padding: 14px;
-        margin-bottom: 15px;
-        text-align: center;
-    }
-
-    .user-badge {
-        display: inline-block;
-        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
-        color: #ffffff;
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        padding: 3px 10px;
-        border-radius: 20px;
-        margin-top: 5px;
-    }
-
-    /* 7. Clean Web Clutter */
+    /* 8. Hide Streamlit Web Clutter */
+    header[data-testid="stHeader"] { background: transparent !important; }
     div[data-testid="stToolbar"] { display: none !important; }
     footer { display: none !important; }
     div[class*="viewerBadge"] { display: none !important; }
-
-    [data-testid="stMetricValue"] { font-size: 26px !important; font-weight: 800; color: #06b6d4 !important; }
-    [data-testid="stMetricLabel"] { color: #94a3b8 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -195,7 +150,7 @@ GSHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out
 WEBSITE_URL = "https://mathscience.in"
 
 # ==============================================================================
-# 3. SUPABASE CLOUD DATA FETCHING
+# 3. DATABASE REPOSITORY LOGIC
 # ==============================================================================
 def fetch_cloud_sheet(sheet_name, fallback_df):
     try:
@@ -243,27 +198,26 @@ def render_notice_board():
         </div>
         """, unsafe_allow_html=True)
 
-def show_teacher_dashboard():
-    with st.container():
-        st.markdown(f"""
-        <div style="display: flex; align-items: center; gap: 15px; margin-top: -10px; margin-bottom: 20px;">
-            <img src="{logo_b64_str}" style="width: 60px; height: 60px; border-radius: 20%; box-shadow: 0 0 20px rgba(6, 182, 212, 0.4); flex-shrink: 0;">
-            <h1 style="font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin: 0; background: linear-gradient(135deg, #ffffff 30%, #38bdf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap;">
-                MathScience Tuition
-            </h1>
+def show_header():
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 15px; margin-top: -10px; margin-bottom: 20px;">
+        <img src="{logo_b64_str}" style="width: 55px; height: 55px; border-radius: 16px; box-shadow: 0 0 20px rgba(6, 182, 212, 0.4); flex-shrink: 0;">
+        <h1 style="font-family: 'Inter', system-ui, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; margin: 0; background: linear-gradient(135deg, #ffffff 30%, #38bdf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap;">
+            MathScience Tuition
+        </h1>
+    </div>
+    <div class="glass-card" style="text-align: center;">
+        <div style="display: inline-block; margin-bottom: 12px; padding: 5px 14px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 30px;">
+            <p style="color: #38bdf8; font-size: 11px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 1px;">✨ PREMIUM PRIVATE PORTAL</p>
         </div>
-        <div class="glass-card" style="text-align: center; margin-top: 15px;">
-            <div style="display: inline-block; margin-bottom: 15px; padding: 6px 16px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 30px;">
-                <p style="color: #38bdf8; font-size: 11px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 1px;">✨ PREMIUM PRIVATE PORTAL</p>
-            </div>
-            <div>
-                <a href="{WEBSITE_URL}" target="_blank" class="portal-btn">🌐 Visit Academy Portal</a>
-            </div>
+        <div>
+            <a href="{WEBSITE_URL}" target="_blank" class="portal-btn">🌐 Visit Academy Portal</a>
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 4. AUTHENTICATION & MULTI-TENANT ROUTING
+# 4. SECURE AUTHENTICATION & MULTI-ROLE ROUTER
 # ==============================================================================
 if not st.session_state.logged_in:
     with st.container(border=True):
@@ -286,30 +240,27 @@ if not st.session_state.logged_in:
                 st.error("Invalid email address or password configuration. Please try again.")
 
 else:
-    # Dedicated Active Session Sidebar
-    with st.sidebar:
-        st.markdown("""
-            <div class="sidebar-profile-card">
-                <div style="font-size: 26px; margin-bottom: 2px;">👨‍🏫</div>
-                <h4 style="color: #f1f5f9; margin: 0; font-size: 16px;">User Session</h4>
-                <span class="user-badge">Authenticated</span>
-            </div>
-        """, unsafe_allow_html=True)
-
-        role_options = ["Admin", "Teacher", "Student", "Parent"]
-        current_index = role_options.index(st.session_state.user_role) if st.session_state.user_role in role_options else 1
-        st.session_state.user_role = st.selectbox("Switch View / Role:", role_options, index=current_index)
-        
-        if st.button("🚪 Log Out", key="sidebar_logout_btn", use_container_width=True):
+    # 📱 UNIVERSAL IN-PAGE MOBILE NAVIGATION BAR
+    st.markdown('<div class="mobile-nav-wrapper">', unsafe_allow_html=True)
+    nav_col1, nav_col2 = st.columns([3, 1])
+    with nav_col1:
+        role_options = ["Teacher", "Admin", "Student", "Parent"]
+        current_index = role_options.index(st.session_state.user_role) if st.session_state.user_role in role_options else 0
+        st.session_state.user_role = st.selectbox("Role Switcher", role_options, index=current_index, label_visibility="collapsed")
+    with nav_col2:
+        if st.button("🚪 Logout", key="top_mobile_logout", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.user_role = None
             st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # Always use the current state
     df = st.session_state.student_db
 
-    # ADMIN VIEW
+    # --------------------------------------------------------------------------
+    # ROLE 1: ADMIN (SAAS SUBSCRIPTION MANAGER)
+    # --------------------------------------------------------------------------
     if st.session_state.user_role == "Admin":
+        show_header()
         st.markdown("## 📈 SaaS Platform Manager Dashboard")
         st.write("Welcome. Here is the operational state of your global teacher subscription system:")
         
@@ -325,16 +276,18 @@ else:
         ])
         st.dataframe(teacher_data_panel, use_container_width=True, hide_index=True)
 
-    # TEACHER VIEW
+    # --------------------------------------------------------------------------
+    # ROLE 2: TEACHER (PRIMARY CLASSROOM CONSOLE)
+    # --------------------------------------------------------------------------
     elif st.session_state.user_role == "Teacher":
-        show_teacher_dashboard()
+        show_header()
         render_notice_board()
         
-        admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([
+        tab1, tab2, tab3, tab4 = st.tabs([
             "👥 Student Management", "📅 Attendance Desk", "📢 Broadcast Desk", "📊 Financial Analytics"
         ])
 
-        with admin_tab1:
+        with tab1:
             st.markdown("### 🛠️ Academy Student Management Console")
             
             with st.expander("➕ Add New Student to Roster", expanded=False):
@@ -394,7 +347,7 @@ else:
 
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-        with admin_tab2:
+        with tab2:
             st.markdown("### 📅 Take Attendance")
             selected_date = st.date_input("Select Date for Attendance:", datetime.now().date())
             date_str = selected_date.strftime("%Y-%m-%d")
@@ -413,7 +366,7 @@ else:
                 st.session_state.attendance_db = pd.concat([st.session_state.attendance_db, new_att_df], ignore_index=True)
                 st.success(f"Attendance log updated locally for {date_str}!")
 
-        with admin_tab3:
+        with tab3:
             st.markdown("### 📢 Broadcast Desk")
             with st.form("notice_form", clear_on_submit=True):
                 notice_text = st.text_area("Type Announcement text here:")
@@ -424,7 +377,7 @@ else:
                     st.success("Notice updated successfully!")
                     st.rerun()
 
-        with admin_tab4:
+        with tab4:
             st.markdown("### 📊 Business Analytics")
             total_collected = df[df["Fee Status"] == "Paid"]["Monthly Fee (₹)"].sum()
             total_pending = df[df["Fee Status"] == "Pending"]["Monthly Fee (₹)"].sum()
@@ -432,8 +385,11 @@ else:
             card1.metric(label="🟢 Total Revenue Collected", value=f"₹{total_collected:,}")
             card2.metric(label="🔴 Total Revenue Pending", value=f"₹{total_pending:,}")
 
-    # STUDENT VIEW
+    # --------------------------------------------------------------------------
+    # ROLE 3: STUDENT VIEW
+    # --------------------------------------------------------------------------
     elif st.session_state.user_role == "Student":
+        show_header()
         st.markdown("## 🎒 Student Performance Hub")
         render_notice_board()
         st.markdown("### 🔎 Access Academic Profile")
@@ -480,8 +436,11 @@ else:
                 else:
                     st.info("No attendance database entries available.")
 
-    # PARENT VIEW
+    # --------------------------------------------------------------------------
+    # ROLE 4: PARENT VIEW
+    # --------------------------------------------------------------------------
     elif st.session_state.user_role == "Parent":
+        show_header()
         st.markdown("## 👨‍👩‍👦 Academy Parent Portal")
         render_notice_board()
 
