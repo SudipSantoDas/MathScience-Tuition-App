@@ -87,6 +87,29 @@ st.markdown(f"""
         background-attachment: fixed !important;
     }}
 
+    /* Fix faint login subtitle and body text */
+    p, span, .stMarkdown p, [data-testid="stMarkdownContainer"] p {{
+        color: #e2e8f0 !important;
+    }}
+
+    /* Make the mobile sidebar toggle button clearly visible */
+    header[data-testid="stHeader"] {{
+        background: transparent !important;
+    }}
+    header[data-testid="stHeader"] button {{
+        background: rgba(15, 23, 42, 0.85) !important;
+        border: 1.5px solid #38bdf8 !important;
+        border-radius: 8px !important;
+        color: #38bdf8 !important;
+        visibility: visible !important;
+        margin-left: 8px !important;
+        margin-top: 4px !important;
+    }}
+    header[data-testid="stHeader"] button svg {{
+        fill: #38bdf8 !important;
+        color: #38bdf8 !important;
+    }}
+
     [data-testid="stSidebar"] {{
         background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
         border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
@@ -121,7 +144,7 @@ st.markdown(f"""
 
     button[data-baseweb="tab"][aria-selected="true"] {{
         color: #38bdf8 !important; 
-        font-weight: 700 !important;
+        font-weight: 700 !important; 
     }}
 
     [data-testid="stExpander"] details summary p, 
@@ -142,7 +165,7 @@ st.markdown(f"""
     [data-testid="stMarkdownContainer"] h4, 
     [data-testid="stMarkdownContainer"] h4 p {{
         color: #ffffff !important; 
-        font-weight: 700 !important;
+        font-weight: 700 !important; 
     }}
 
     label, 
@@ -158,7 +181,7 @@ st.markdown(f"""
         background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%) !important;
         color: #ffffff !important; 
         font-weight: 700 !important; 
-        border: none !important;
+        border: none !important; 
         border-radius: 12px !important; 
         padding: 10px 20px !important;
         box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important; 
@@ -200,7 +223,6 @@ st.markdown(f"""
     }}
 </style>
 """, unsafe_allow_html=True)
-
 # ==============================================================================
 # # ==============================================================================
 # 2. HEADER INTERFACE DESIGN (Now Wrapped inside the Teacher's Dashboard)
