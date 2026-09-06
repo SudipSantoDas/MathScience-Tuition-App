@@ -26,12 +26,7 @@ if "user_email" not in st.session_state:
 
 # Student Roster Database
 if "students_db" not in st.session_state:
-    st.session_state.students_db = [
-        {"id": "STU101", "name": "Aarav Sharma", "grade": "Class 9 Science", "subject": "Science", "fee_status": "Paid", "fee_amount": 1500, "attendance": "94%"},
-        {"id": "STU102", "name": "Diya Patel", "grade": "Class 7 Olympiad", "subject": "Mathematics", "fee_status": "Pending", "fee_amount": 1200, "attendance": "98%"},
-        {"id": "STU103", "name": "Rohan Das", "grade": "Class 9 Science", "subject": "Science", "fee_status": "Paid", "fee_amount": 1500, "attendance": "89%"},
-    ]
-
+    st.session_state.students_db = []
 # Financial / Fee Ledger Transactions
 if "financial_records" not in st.session_state:
     st.session_state.financial_records = [
