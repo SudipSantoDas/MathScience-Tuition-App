@@ -358,8 +358,8 @@ def show_teacher_dashboard():
     with tab2:
         st.subheader("Tuition Fee Management & Records")
         
-        # Financial metric summary cards
-        total_collected = sum(tx["amount"] for tx in st.session_state.financial_records)
+       # Financial metric summary cards
+        total_collected = sum(tx.get("amount", 0) for tx in st.session_state.financial_records)
         pending_students = [s for s in st.session_state.students_db if s.get("fee_status") == "Pending"]
         total_pending = sum(s.get("fee_amount", 1500) for s in pending_students)
 
@@ -367,6 +367,38 @@ def show_teacher_dashboard():
         col_f1.metric("Total Fees Collected", f"₹{total_collected:,}")
         col_f2.metric("Outstanding Due", f"₹{total_pending:,}")
 
+        # --- UNPAID STUDENTS ALERT & REMINDER SECTION ---
+        st.markdown("#### ⚠️ Unpaid / Pending Students")
+        if pending_students:
+            for s in pending_students:
+                due_amt = s.get("fee_amount", 1500)
+                parent_phone = s.get("phone", "919876543210")
+                
+                c_info, c_btn = st.columns([2, 1])
+                with c_info:
+                    st.markdown(f"""
+                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;">
+                        <span style="color: #f87171; font-weight: 700; font-size: 15px;">{s['name']}</span> 
+                        <span style="color: #94a3b8; font-size: 13px;">({s.get('grade', 'Class')})</span><br>
+                        <span style="color: #fca5a5; font-size: 13px;">Due Balance: <strong>₹{due_amt}</strong></span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with c_btn:
+                    msg = f"Hello, reminder from MathScience Academy regarding pending tuition fee of Rs.{due_amt} for {s['name']}. Please clear the balance."
+                    wa_url = f"https://wa.me/{parent_phone}?text={msg.replace(' ', '%20')}"
+                    st.markdown(f"""
+                    <a href="{wa_url}" target="_blank" style="text-decoration: none;">
+                        <button style="background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); color: white; border: none; border-radius: 8px; padding: 10px; font-weight: 700; width: 100%; cursor: pointer; margin-top: 4px;">
+                            📲 Remind
+                        </button>
+                    </a>
+                    """, unsafe_allow_html=True)
+        else:
+            st.success("All student fees are fully paid!")
+
+        st.divider()
+
+        # --- PAYMENT COLLECTION FORM ---
         st.markdown("#### Record Payment Collection")
         with st.form("fee_payment_form"):
             payer = st.selectbox("Select Student", [s["name"] for s in st.session_state.students_db])
@@ -387,6 +419,14 @@ def show_teacher_dashboard():
                 }
                 st.session_state.financial_records.append(new_tx)
 
+                # Automatically update student status to Paid
+                for s in st.session_state.students_db:
+                    if s["name"] == payer:
+                        s["fee_status"] = "Paid"
+                        break
+
+                st.success(f"Payment of ₹{amount_paid:,} recorded for {payer}!")
+                st.rerun()
                 # Update student fee status to Paid
                 for s in st.session_state.students_db:
                     if s["name"] == payer:
