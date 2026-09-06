@@ -81,40 +81,58 @@ WEBSITE_URL = "https://mathscience.in"
 
 # 🎨 Master High-Contrast UI Styling Engine for Ultimate Readability
 st.markdown(f"""
+st.markdown(f"""
 <style>
+    /* 1. App Background */
     .stApp {{
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
         background-attachment: fixed !important;
     }}
 
-    /* Fix faint login subtitle and body text */
+    /* 2. Global Text & Subtitle Readability */
     p, span, .stMarkdown p, [data-testid="stMarkdownContainer"] p {{
         color: #e2e8f0 !important;
     }}
 
-    /* Make the mobile sidebar toggle button clearly visible */
+    /* 3. Floating Cyan Sidebar Toggle Button */
     header[data-testid="stHeader"] {{
         background: transparent !important;
+        z-index: 99999 !important;
     }}
-    header[data-testid="stHeader"] button {{
-        background: rgba(15, 23, 42, 0.85) !important;
-        border: 1.5px solid #38bdf8 !important;
-        border-radius: 8px !important;
-        color: #38bdf8 !important;
+    [data-testid="collapsedControl"] {{
+        display: flex !important;
         visibility: visible !important;
-        margin-left: 8px !important;
-        margin-top: 4px !important;
+        position: fixed !important;
+        top: 14px !important;
+        left: 14px !important;
+        z-index: 999999 !important;
     }}
-    header[data-testid="stHeader"] button svg {{
-        fill: #38bdf8 !important;
-        color: #38bdf8 !important;
+    [data-testid="collapsedControl"] button,
+    header[data-testid="stHeader"] button {{
+        background: #0284c7 !important;
+        border: 2px solid #38bdf8 !important;
+        border-radius: 50% !important;
+        width: 42px !important;
+        height: 42px !important;
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.6) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }}
+    [data-testid="collapsedControl"] svg,
+    header[data-testid="stHeader"] svg {{
+        fill: #ffffff !important;
+        stroke: #ffffff !important;
+        color: #ffffff !important;
+        width: 22px !important;
+        height: 22px !important;
     }}
 
+    /* 4. Sidebar Base & Glass Styling */
     [data-testid="stSidebar"] {{
         background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
         border-right: 1px solid rgba(56, 189, 248, 0.25) !important;
     }}
-
     [data-testid="stSidebar"] h2, 
     [data-testid="stSidebar"] h2 span, 
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {{
@@ -122,31 +140,30 @@ st.markdown(f"""
         font-weight: 700 !important; 
         font-size: 22px !important;
     }}
-
     [data-testid="stSidebar"] label, 
     [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
         color: #38bdf8 !important; 
         font-weight: 700 !important; 
         font-size: 15px !important;
     }}
-
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
         color: #f1f5f9 !important; 
         font-weight: 600 !important; 
         font-size: 14px !important;
     }}
 
+    /* 5. Navigation Tabs */
     button[data-baseweb="tab"] {{
         color: #94a3b8 !important; 
         font-weight: 600 !important; 
         font-size: 15px !important;
     }}
-
     button[data-baseweb="tab"][aria-selected="true"] {{
         color: #38bdf8 !important; 
         font-weight: 700 !important; 
     }}
 
+    /* 6. Expanders */
     [data-testid="stExpander"] details summary p, 
     [data-testid="stExpander"] p, 
     [data-testid="stExpander"] span {{
@@ -154,20 +171,19 @@ st.markdown(f"""
         font-weight: 600 !important; 
         font-size: 15px !important;
     }}
-
     [data-testid="stExpander"] {{
         background: rgba(255, 255, 255, 0.03) !important;
         border: 1px solid rgba(255, 255, 255, 0.08) !important;
         border-radius: 12px !important;
     }}
 
+    /* 7. Typography & Labels */
     h1, h2, h3, h4, h5, h6, 
     [data-testid="stMarkdownContainer"] h4, 
     [data-testid="stMarkdownContainer"] h4 p {{
         color: #ffffff !important; 
         font-weight: 700 !important; 
     }}
-
     label, 
     [data-testid="stWidgetLabel"] p {{
         color: #cbd5e1 !important; 
@@ -175,6 +191,7 @@ st.markdown(f"""
         font-size: 14px !important;
     }}
 
+    /* 8. Action Buttons */
     div[data-testid="stFormSubmitButton"] button, 
     .stButton button, 
     button[kind="primaryFormSubmit"] {{
@@ -188,6 +205,7 @@ st.markdown(f"""
         width: 100% !important;
     }}
 
+    /* 9. Cards & Portals */
     .glass-card {{
         background: rgba(255, 255, 255, 0.04); 
         backdrop-filter: blur(12px); 
@@ -198,7 +216,6 @@ st.markdown(f"""
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3); 
         margin-bottom: 25px;
     }}
-
     .portal-btn {{
         display: inline-block; 
         background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
@@ -212,15 +229,18 @@ st.markdown(f"""
         box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
     }}
 
+    /* 10. Metrics & Clutter Cleanup */
     [data-testid="stMetricValue"] {{ 
         font-size: 26px !important; 
         font-weight: 800; 
         color: #06b6d4 !important; 
     }}
-
     [data-testid="stMetricLabel"] {{ 
         color: #94a3b8 !important; 
     }}
+    div[data-testid="stToolbar"] {{ display: none !important; }}
+    footer {{ display: none !important; }}
+    div[class*="viewerBadge"] {{ display: none !important; }}
 </style>
 """, unsafe_allow_html=True)
 # ==============================================================================
