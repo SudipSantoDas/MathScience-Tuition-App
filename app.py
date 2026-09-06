@@ -84,10 +84,9 @@ st.markdown(f"""
 <style>
     /* 1. Base App Background */
     .stApp {{
-        background: #f8fafc !important;
+        background: radial-gradient(circle at top right, #0e2a47 0%, #030712 70%) !important;
         background-attachment: fixed !important;
     }}
-
     /* 2. Text Legibility */
     p, span, label, .stMarkdown p, [data-testid="stMarkdownContainer"] p {{
         color: #e2e8f0 !important;
