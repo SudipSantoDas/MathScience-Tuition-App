@@ -113,10 +113,11 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    [data-testid="stExpander"] {
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 12px !important;
+    [data-testid="stSidebar"] {
+        background-color: #0b1329 !important;
+        background: #0b1329 !important;
+        border-bottom: 2px solid rgba(56, 189, 248, 0.35) !important;
+        padding-top: 1rem !important;
     }
 
     /* 7. Metric KPIs */
