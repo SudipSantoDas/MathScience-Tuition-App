@@ -514,7 +514,7 @@ def show_teacher_dashboard():
             st.success(f"Attendance recorded! Present: {len(present_list)} | Absent: {len(absent_list)}")
 
     # ---------------- TAB 3: FINANCIAL DESK ----------------
-    # ---------------- TAB 3: FINANCIAL DESK ----------------
+# ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
         st.subheader("Tuition Fee Management")
 
@@ -534,7 +534,7 @@ def show_teacher_dashboard():
             with col_rev1:
                 st.metric("Total Collected", f"₹{total_collected:,}")
             with col_rev2:
-                st.metric("Pending / Due", f"₹{total_due:,}", delta=f"-₹{total_due:,}" if total_due > 0 else "All Clear", delta_color="inverse")
+                st.metric("Pending / Due", f"₹{total_due:,}")
 
             st.write("---")
             st.markdown("### Update Student Payment Status")
@@ -594,12 +594,7 @@ def show_teacher_dashboard():
                 st.success("🎉 All students have paid their dues for this cycle!")
 
         else:
-            st.info("No students enrolled yet to track fees.")
-            else:
-                st.success("🎉 All students have paid their dues for this cycle!")
-
-        else:
-            st.info("No students enrolled yet to track fees.")
+            st.info("No students enrolled yet to track fees.")    
 
     # ---------------- TAB 4: NOTICE BOARD ----------------
     with tab_notices:
