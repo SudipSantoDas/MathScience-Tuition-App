@@ -312,8 +312,22 @@ def show_login_page():
                     st.rerun()
                 else:
                     st.error("Invalid email or password. Please verify credentials.")
-
 def show_teacher_dashboard():
+    # ----------------------------------------------------
+    # QUICK CONSOLE NAVIGATION SWITCHER
+    # ----------------------------------------------------
+    nav_col1, nav_col2 = st.columns(2)
+    with nav_col1:
+        if st.button("⬅ Return to Admin Console", use_container_width=True, key="btn_to_admin"):
+            st.session_state.current_role = "admin"
+            st.rerun()
+    with nav_col2:
+        if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="btn_to_parent"):
+            st.session_state.current_role = "parent"
+            st.rerun()
+
+    st.write("")  # small spacer
+
     # 1. Retrieve dynamic academy or teacher name (fallback to a clean universal title)
     academy_name = st.session_state.get("academy_name", "Tuition Operations Console")
     teacher_name = st.session_state.get("user_name", "Teacher Desk")
@@ -500,20 +514,18 @@ def show_teacher_dashboard():
             st.success(f"Attendance recorded! Present: {len(present_list)} | Absent: {len(absent_list)}")
 
     # ---------------- TAB 3: FINANCIAL DESK ----------------
+    # ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
         st.subheader("Tuition Fee Management")
 
-        # Initialize payment tracking state if missing
         if "payment_status" not in st.session_state:
             st.session_state.payment_status = {}
 
         if "students_db" in st.session_state and st.session_state.students_db:
-            # 1. Financial Overview Summary Metrics
+            # 1. Summary Metrics
             total_expected = sum(s.get("fee", 0) for s in st.session_state.students_db)
-            
-            # Calculate collected vs unpaid
             total_collected = sum(
-                s.get("fee", 0) for s in st.session_state.students_db 
+                s.get("fee", 0) for s in st.session_state.students_db
                 if st.session_state.payment_status.get(s["id"], "Unpaid") == "Paid"
             )
             total_due = total_expected - total_collected
@@ -527,43 +539,62 @@ def show_teacher_dashboard():
             st.write("---")
             st.markdown("### Update Student Payment Status")
 
-            # 2. Interactive Fee Collection Toggle List
-            for student in st.session_state.students_db:
-                s_id = student["id"]
-                current_status = st.session_state.payment_status.get(s_id, "Unpaid")
+            # 2. Form with explicit save button
+            with st.form("fee_status_form"):
+                new_statuses = {}
+                for student in st.session_state.students_db:
+                    s_id = student["id"]
+                    current_val = st.session_state.payment_status.get(s_id, "Unpaid")
 
-                f_col1, f_col2 = st.columns([3, 2])
-                with f_col1:
-                    status_badge = "🟢 Paid" if current_status == "Paid" else "🔴 Unpaid"
-                    st.markdown(f"**{student['name']}** ({student['grade']})<br><span style='color:#94a3b8;'>Fee: ₹{student['fee']:,} • Status: {status_badge}</span>", unsafe_allow_html=True)
-                
-                with f_col2:
-                    new_status = st.selectbox(
-                        "Status",
-                        options=["Unpaid", "Paid"],
-                        index=0 if current_status == "Unpaid" else 1,
-                        key=f"fee_status_{s_id}",
-                        label_visibility="collapsed"
-                    )
-                    st.session_state.payment_status[s_id] = new_status
+                    f_col1, f_col2 = st.columns([3, 2])
+                    with f_col1:
+                        badge = "🟢 Paid" if current_val == "Paid" else "🔴 Unpaid"
+                        st.markdown(
+                            f"**{student['name']}** ({student['grade']})<br>"
+                            f"<span style='color:#94a3b8;'>Fee: ₹{student['fee']:,} • Status: {badge}</span>",
+                            unsafe_allow_html=True
+                        )
+
+                    with f_col2:
+                        new_statuses[s_id] = st.selectbox(
+                            "Status",
+                            options=["Unpaid", "Paid"],
+                            index=1 if current_val == "Paid" else 0,
+                            key=f"select_fee_{s_id}",
+                            label_visibility="collapsed"
+                        )
+
+                st.write("")
+                submit_fee_update = st.form_submit_button("💾 Save Payment Statuses", use_container_width=True, type="primary")
+
+                if submit_fee_update:
+                    for sid, stat in new_statuses.items():
+                        st.session_state.payment_status[sid] = stat
+                    st.success("Payment records updated!")
+                    st.rerun()
 
             st.write("---")
 
-            # 3. Dedicated Overdue / Defaulters Alert Card
+            # 3. Defaulters Alert
             unpaid_students = [
-                s for s in st.session_state.students_db 
+                s for s in st.session_state.students_db
                 if st.session_state.payment_status.get(s["id"], "Unpaid") == "Unpaid"
             ]
 
             if unpaid_students:
                 st.markdown(f"""
-                <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 10px; padding: 12px 16px; margin-top: 10px;">
+                <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 10px; padding: 12px 16px;">
                     <strong style="color: #ef4444; font-size: 15px;">⚠️ Pending Fee Reminders:</strong>
                     <p style="color: #fecaca; font-size: 13px; margin: 4px 0 0 0;">
                         {len(unpaid_students)} student(s) have unpaid balances totaling <strong>₹{total_due:,}</strong>.
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
+            else:
+                st.success("🎉 All students have paid their dues for this cycle!")
+
+        else:
+            st.info("No students enrolled yet to track fees.")
             else:
                 st.success("🎉 All students have paid their dues for this cycle!")
 
