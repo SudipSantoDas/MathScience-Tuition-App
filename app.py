@@ -502,12 +502,73 @@ def show_teacher_dashboard():
     # ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
         st.subheader("Tuition Fee Management")
+
+        # Initialize payment tracking state if missing
+        if "payment_status" not in st.session_state:
+            st.session_state.payment_status = {}
+
         if "students_db" in st.session_state and st.session_state.students_db:
+            # 1. Financial Overview Summary Metrics
             total_expected = sum(s.get("fee", 0) for s in st.session_state.students_db)
-            st.metric("Total Monthly Expected Revenue", f"₹{total_expected:,}")
-            st.dataframe(st.session_state.students_db, use_container_width=True)
+            
+            # Calculate collected vs unpaid
+            total_collected = sum(
+                s.get("fee", 0) for s in st.session_state.students_db 
+                if st.session_state.payment_status.get(s["id"], "Unpaid") == "Paid"
+            )
+            total_due = total_expected - total_collected
+
+            col_rev1, col_rev2 = st.columns(2)
+            with col_rev1:
+                st.metric("Total Collected", f"₹{total_collected:,}")
+            with col_rev2:
+                st.metric("Pending / Due", f"₹{total_due:,}", delta=f"-₹{total_due:,}" if total_due > 0 else "All Clear", delta_color="inverse")
+
+            st.write("---")
+            st.markdown("### Update Student Payment Status")
+
+            # 2. Interactive Fee Collection Toggle List
+            for student in st.session_state.students_db:
+                s_id = student["id"]
+                current_status = st.session_state.payment_status.get(s_id, "Unpaid")
+
+                f_col1, f_col2 = st.columns([3, 2])
+                with f_col1:
+                    status_badge = "🟢 Paid" if current_status == "Paid" else "🔴 Unpaid"
+                    st.markdown(f"**{student['name']}** ({student['grade']})<br><span style='color:#94a3b8;'>Fee: ₹{student['fee']:,} • Status: {status_badge}</span>", unsafe_allow_html=True)
+                
+                with f_col2:
+                    new_status = st.selectbox(
+                        "Status",
+                        options=["Unpaid", "Paid"],
+                        index=0 if current_status == "Unpaid" else 1,
+                        key=f"fee_status_{s_id}",
+                        label_visibility="collapsed"
+                    )
+                    st.session_state.payment_status[s_id] = new_status
+
+            st.write("---")
+
+            # 3. Dedicated Overdue / Defaulters Alert Card
+            unpaid_students = [
+                s for s in st.session_state.students_db 
+                if st.session_state.payment_status.get(s["id"], "Unpaid") == "Unpaid"
+            ]
+
+            if unpaid_students:
+                st.markdown(f"""
+                <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 10px; padding: 12px 16px; margin-top: 10px;">
+                    <strong style="color: #ef4444; font-size: 15px;">⚠️ Pending Fee Reminders:</strong>
+                    <p style="color: #fecaca; font-size: 13px; margin: 4px 0 0 0;">
+                        {len(unpaid_students)} student(s) have unpaid balances totaling <strong>₹{total_due:,}</strong>.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.success("🎉 All students have paid their dues for this cycle!")
+
         else:
-            st.info("No financial records to display.")
+            st.info("No students enrolled yet to track fees.")
 
     # ---------------- TAB 4: NOTICE BOARD ----------------
     with tab_notices:
