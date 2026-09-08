@@ -585,31 +585,45 @@ def show_admin_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
-    # 1-Tap Perspective Switcher for Admin
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("👨‍🏫 Open Teacher Desk", key="btn_switch_to_teacher", use_container_width=True):
-            st.session_state.active_view = "Teacher"
+    # Quick Navigation Switchers
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="admin_to_teacher"):
+            st.session_state.user_role = "Teacher"
             st.rerun()
-    with c2:
-        if st.button("👨‍👩‍👦 Open Parent Portal", key="btn_switch_to_parent", use_container_width=True):
-            st.session_state.active_view = "Parent"
+    with col_nav2:
+        if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="admin_to_parent"):
+            st.session_state.user_role = "Parent"
             st.rerun()
 
-    st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
+    st.write("---")
 
-    total_revenue = sum(tx["amount"] for tx in st.session_state.financial_records)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Enrolled Students", len(st.session_state.students_db))
-    c2.metric("Total Revenue", f"₹{total_revenue:,}")
-    c3.metric("System Health", "Operational")
+    # Dynamic Live Metrics Calculation
+    students = st.session_state.get("students_db", [])
+    enrolled_count = len(students)
+    total_revenue = sum(int(s.get("fee", 0)) for s in students)
 
+    st.metric("Enrolled Students", enrolled_count)
+    st.metric("Total Revenue", f"₹{total_revenue:,}")
+    st.metric("System Health", "Operational")
+
+    st.write("---")
+
+    # Master Student Records Table (hide_index prevents cut-off on mobile)
     st.subheader("Master Student Records")
-    st.dataframe(pd.DataFrame(st.session_state.students_db), use_container_width=True)
+    if students:
+        st.dataframe(students, use_container_width=True, hide_index=True)
+    else:
+        st.info("No student records found.")
 
+    st.write("---")
+
+    # Master Financial Ledger Table
     st.subheader("Master Financial Ledger")
-    st.dataframe(pd.DataFrame(st.session_state.financial_records), use_container_width=True)
-
+    if students:
+        st.dataframe(students, use_container_width=True, hide_index=True)
+    else:
+        st.info("No ledger entries available.")
 def show_parent_dashboard():
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
