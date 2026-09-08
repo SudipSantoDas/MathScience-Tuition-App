@@ -314,330 +314,205 @@ def show_login_page():
                     st.error("Invalid email or password. Please verify credentials.")
 
 def show_teacher_dashboard():
+    # 1. Retrieve dynamic academy or teacher name (fallback to a clean universal title)
+    academy_name = st.session_state.get("academy_name", "Tuition Operations Console")
+    teacher_name = st.session_state.get("user_name", "Teacher Desk")
+
+    # 2. Universal High-Contrast Header
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
+        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />
         <div>
-            <h2 style="margin: 0; font-size: 22px;">MathScience Tuition</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Teacher Desk • Operations Console</p>
+            <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{academy_name}</h2>
+            <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{teacher_name} • Operations Console</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     # ----------------------------------------------------
-    # DYNAMIC CLASSROOM CREATOR & WORKSPACE SELECTOR
+    # 1. DYNAMIC CLASSROOM CREATOR & WORKSPACE SELECTOR
     # ----------------------------------------------------
-    current_user = st.session_state.get("user_email", "default_teacher")
     if "classrooms" not in st.session_state:
-        st.session_state.classrooms = {}
-
-    if current_user not in st.session_state.classrooms:
-        st.session_state.classrooms[current_user] = [
-            {"room_id": "RM-001", "title": "Class 11", "subject": "Physics", "section": "Batch A", "fee": 1500}
-        ]
-
-    user_rooms = st.session_state.classrooms[current_user]
+        st.session_state.classrooms = []
 
     with st.expander("➕ Create New Classroom / Batch", expanded=False):
-        with st.form("new_classroom_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            with c1:
-                room_title = st.text_input("Class / Grade Level", placeholder="e.g., Class 11, Grade 8, AP Bio")
-            with c2:
-                room_subject = st.text_input("Subject", placeholder="e.g., Physics, Mathematics, Science")
-            
-            c3, c4 = st.columns(2)
-            with c3:
-                room_code = st.text_input("Room / Section", placeholder="e.g., Batch A, Evening Lab")
-            with c4:
-                monthly_fee = st.number_input("Standard Monthly Fee", min_value=0, value=1500, step=100)
+        with st.form("create_room_form", clear_on_submit=True):
+            r_col1, r_col2 = st.columns(2)
+            with r_col1:
+                r_title = st.text_input("Grade / Class Level", placeholder="e.g., Class 11, Grade 8, AP Physics")
+            with r_col2:
+                r_subj = st.text_input("Subject", placeholder="e.g., Physics, Calculus, Chemistry")
 
-            create_btn = st.form_submit_button("Register Classroom", use_container_width=True)
+            r_col3, r_col4 = st.columns(2)
+            with r_col3:
+                r_batch = st.text_input("Batch / Section", placeholder="e.g., Batch A, Room 102, Weekend")
+            with r_col4:
+                r_fee = st.number_input("Standard Monthly Fee (₹)", min_value=0, value=2500, step=100)
 
-            if create_btn:
-                if room_title.strip() and room_subject.strip():
-                    new_room = {
-                        "room_id": f"RM-{len(user_rooms) + 1:03d}",
-                        "title": room_title.strip(),
-                        "subject": room_subject.strip(),
-                        "section": room_code.strip() or "General",
-                        "fee": monthly_fee
-                    }
-                    user_rooms.append(new_room)
-                    st.success(f"Classroom '{room_title} - {room_subject}' created successfully!")
+            if st.form_submit_button("Save Classroom", use_container_width=True):
+                if r_title.strip() and r_subj.strip():
+                    st.session_state.classrooms.append({
+                        "title": r_title.strip(),
+                        "subject": r_subj.strip(),
+                        "section": r_batch.strip() or "Regular",
+                        "fee": r_fee
+                    })
+                    st.success("Classroom created successfully!")
                     st.rerun()
                 else:
-                    st.warning("Please specify both a Class Level and a Subject.")
+                    st.warning("Please provide both a Class level and a Subject.")
 
-    # Classroom Selector Bar
-    if user_rooms:
-        room_labels = [f"{r['title']} — {r['subject']} ({r['section']})" for r in user_rooms]
-        selected_label = st.selectbox("Select Active Classroom to Manage:", room_labels)
-        active_room = user_rooms[room_labels.index(selected_label)]
+    # High-contrast active class selector card
+    active_room = None
+    if st.session_state.classrooms:
+        room_labels = [f"{r['title']} — {r['subject']} ({r['section']})" for r in st.session_state.classrooms]
+        selected_label = st.selectbox("Select Active Classroom to Manage:", room_labels, key="active_room_picker")
+        active_room = st.session_state.classrooms[room_labels.index(selected_label)]
 
         st.markdown(f"""
-        <div class="glass-card" style="padding: 12px 18px; margin-bottom: 20px; border-color: rgba(56, 189, 248, 0.2);">
-            <span style="color: #38bdf8; font-weight: 700;">Active Class:</span> 
-            <strong>{active_room['title']}</strong> | Subject: <strong>{active_room['subject']}</strong> | Batch: <strong>{active_room['section']}</strong>
+        <div style="background-color: #1e293b; border: 1.5px solid #38bdf8; border-radius: 12px; padding: 12px 18px; margin: 10px 0 20px 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <span style="color: #38bdf8; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Active Class:</span>
+                    <span style="color: #ffffff; font-weight: 700; font-size: 16px; margin-left: 6px;">{active_room['title']}</span>
+                </div>
+                <div style="color: #cbd5e1; font-size: 14px;">
+                    Subject: <strong style="color: #38bdf8;">{active_room['subject']}</strong>
+                    <span style="color: #64748b; margin: 0 6px;">•</span>
+                    Batch: <strong style="color: #f1f5f9;">{active_room['section']}</strong>
+                </div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
     # ----------------------------------------------------
-    # TABS (Student Management, Attendance, Financial Desk)
+    # 2. SINGLE UNIFIED TAB BAR (No duplicate tabs)
     # ----------------------------------------------------
-    tab1, tab2, tab3 = st.tabs(["👥 Student Management", "📅 Attendance Desk", "💰 Financial Desk"])
-    # ... your existing tab logic continues here ...
+    tab_students, tab_attendance, tab_financial, tab_notices = st.tabs([
+        "👥 Student Management",
+        "📅 Attendance Desk",
+        "💰 Financial Desk",
+        "📢 Notice Board"
+    ])
 
-    st.markdown("""
-    <div class="glass-card" style="text-align: center;">
-        <span style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">PREMIUM PRIVATE PORTAL</span>
-        <div style="margin-top: 14px;">
-            <a href="https://mathscience.in" target="_blank" class="portal-btn">🌐 Visit Academy Portal</a>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab1, tab2, tab3, tab4 = st.tabs(["👥 Student Management", "💰 Financial Desk", "📅 Attendance Desk", "📢 Notice Board"])
-
-    # --- TAB 1: STUDENT MANAGEMENT (ADD & DELETE) ---
-    with tab1:
+    # ---------------- TAB 1: STUDENT MANAGEMENT ----------------
+    with tab_students:
         st.subheader("Academy Student Roster")
-        if st.session_state.students_db:
-            df = pd.DataFrame(st.session_state.students_db)
-            st.dataframe(df[["id", "name", "grade", "subject", "fee_status", "attendance"]], use_container_width=True)
+        
+        if "students_db" in st.session_state and st.session_state.students_db:
+            st.dataframe(st.session_state.students_db, use_container_width=True)
         else:
-            st.info("No active students found in roster.")
+            st.info("No students added yet. Use the form below to register your first student.")
 
-        # Expandable: Add Student
-        with st.expander("➕ Add New Student to Roster"):
-            with st.form("add_student_form"):
-                s_name = st.text_input("Full Name")
-                s_grade = st.text_input("Grade / Batch / Room", placeholder="e.g., Class 11 Physics, Grade 8, Room 101")
-                s_subject = st.text_input("Assigned Subject", value="Science")
-                s_fee = st.number_input("Monthly Fee Amount (₹)", min_value=500, max_value=20000, value=1500, step=100)
-                add_btn = st.form_submit_button("Save Student to Records")
+        with st.expander("➕ Add New Student to Roster", expanded=False):
+            with st.form("new_student_form", clear_on_submit=True):
+                stu_name = st.text_input("Full Name", placeholder="e.g., Aarav Sharma")
+                
+                default_grade = active_room["title"] if active_room else ""
+                default_subject = active_room["subject"] if active_room else ""
+                default_fee = int(active_room["fee"]) if active_room else 2500
 
-                if add_btn:
-                    if s_name.strip():
-                        new_id = f"STU{len(st.session_state.students_db) + 101}"
+                stu_grade = st.text_input("Grade / Batch / Room", value=default_grade, placeholder="e.g., Class 11 Physics")
+                stu_subject = st.text_input("Assigned Subject", value=default_subject, placeholder="e.g., Physics")
+                stu_fee = st.number_input("Monthly Fee Amount (₹)", min_value=0, value=default_fee, step=100)
+
+                if st.form_submit_button("Save Student to Records", use_container_width=True):
+                    if stu_name.strip():
+                        new_id = f"STU{101 + len(st.session_state.students_db)}"
                         st.session_state.students_db.append({
                             "id": new_id,
-                            "name": s_name.strip(),
-                            "grade": s_grade,
-                            "subject": s_subject.strip(),
-                            "fee_status": "Pending",
-                            "fee_amount": int(s_fee),
-                            "attendance": "100%"
+                            "name": stu_name.strip(),
+                            "grade": stu_grade.strip() or "General",
+                            "subject": stu_subject.strip() or "General",
+                            "fee": stu_fee
                         })
-                        st.success(f"Enrolled {s_name} (ID: {new_id}) successfully!")
+                        st.success(f"Added {stu_name.strip()} successfully!")
                         st.rerun()
                     else:
-                        st.warning("Please provide a valid student name.")
+                        st.warning("Please enter student name.")
 
-        # Expandable: Delete Student
-        with st.expander("🗑️ Delete Student from Roster"):
-            if st.session_state.students_db:
-                student_options = {f"{s['name']} ({s['id']})": s["id"] for s in st.session_state.students_db}
-                selected_label = st.selectbox("Select Student to Remove", list(student_options.keys()))
-                
-                col_del_1, col_del_2 = st.columns([2, 1])
-                with col_del_2:
-                    if st.button("Confirm Deletion", type="secondary", use_container_width=True):
-                        target_id = student_options[selected_label]
-                        st.session_state.students_db = [s for s in st.session_state.students_db if s["id"] != target_id]
-                        st.success(f"Removed student record successfully!")
-                        st.rerun()
-            else:
-                st.write("No students available to delete.")
-
-    # --- TAB 2: FINANCIAL SECTION (FEES & PAYMENTS) ---
-    with tab2:
-        st.subheader("Tuition Fee Management & Records")
-        
-       # Financial metric summary cards
-        total_collected = sum(tx.get("amount", 0) for tx in st.session_state.financial_records)
-        pending_students = [s for s in st.session_state.students_db if s.get("fee_status") == "Pending"]
-        total_pending = sum(s.get("fee_amount", 1500) for s in pending_students)
-
-        col_f1, col_f2 = st.columns(2)
-        col_f1.metric("Total Fees Collected", f"₹{total_collected:,}")
-        col_f2.metric("Outstanding Due", f"₹{total_pending:,}")
-
-        # --- UNPAID STUDENTS ALERT & REMINDER SECTION ---
-        st.markdown("#### ⚠️ Unpaid / Pending Students")
-        if pending_students:
-            for s in pending_students:
-                due_amt = s.get("fee_amount", 1500)
-                parent_phone = s.get("phone", "919876543210")
-                
-                c_info, c_btn = st.columns([2, 1])
-                with c_info:
-                    st.markdown(f"""
-                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;">
-                        <span style="color: #f87171; font-weight: 700; font-size: 15px;">{s['name']}</span> 
-                        <span style="color: #94a3b8; font-size: 13px;">({s.get('grade', 'Class')})</span><br>
-                        <span style="color: #fca5a5; font-size: 13px;">Due Balance: <strong>₹{due_amt}</strong></span>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with c_btn:
-                    msg = f"Hello, reminder from MathScience Academy regarding pending tuition fee of Rs.{due_amt} for {s['name']}. Please clear the balance."
-                    wa_url = f"https://wa.me/{parent_phone}?text={msg.replace(' ', '%20')}"
-                    st.markdown(f"""
-                    <a href="{wa_url}" target="_blank" style="text-decoration: none;">
-                        <button style="background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); color: white; border: none; border-radius: 8px; padding: 10px; font-weight: 700; width: 100%; cursor: pointer; margin-top: 4px;">
-                            📲 Remind
-                        </button>
-                    </a>
-                    """, unsafe_allow_html=True)
-        else:
-            st.success("All student fees are fully paid!")
-
-        st.divider()
-
-        # --- PAYMENT COLLECTION FORM ---
-        st.markdown("#### Record Payment Collection")
-        with st.form("fee_payment_form"):
-            payer = st.selectbox("Select Student", [s["name"] for s in st.session_state.students_db])
-            amount_paid = st.number_input("Amount Paid (₹)", min_value=100, max_value=50000, value=1500, step=100)
-            pay_method = st.selectbox("Payment Mode", ["UPI / GPay / PhonePe", "Cash", "Bank Transfer", "Cheque"])
-            pay_notes = st.text_input("Transaction Note / Reference ID", value="Monthly Tuition Fee")
-            record_pay_btn = st.form_submit_button("Confirm Payment Receipt")
-
-            if record_pay_btn:
-                today_str = datetime.date.today().strftime("%Y-%m-%d")
-                new_tx = {
-                    "tx_id": f"TXN{len(st.session_state.financial_records)+901}",
-                    "student": payer,
-                    "date": today_str,
-                    "amount": int(amount_paid),
-                    "type": pay_notes,
-                    "method": pay_method
-                }
-                st.session_state.financial_records.append(new_tx)
-
-                # Automatically update student status to Paid
-                for s in st.session_state.students_db:
-                    if s["name"] == payer:
-                        s["fee_status"] = "Paid"
-                        break
-
-                st.success(f"Payment of ₹{amount_paid:,} recorded for {payer}!")
-                st.rerun()
-                # Update student fee status to Paid
-                for s in st.session_state.students_db:
-                    if s["name"] == payer:
-                        s["fee_status"] = "Paid"
-
-                st.success(f"Recorded ₹{amount_paid} payment for {payer}!")
-                st.rerun()
-
-        st.markdown("#### Transaction Log")
-        if st.session_state.financial_records:
-            tx_df = pd.DataFrame(st.session_state.financial_records)
-            st.dataframe(tx_df, use_container_width=True)
-
-    # ----------------------------------------------------
-    # ATTENDANCE DESK IMPLEMENTATION
-    # ----------------------------------------------------
-    st.subheader("Daily Attendance Register")
-    today_str = datetime.date.today().strftime("%Y-%m-%d")
-    st.caption(f"Logging Record for: **{today_str}**")
-
-    # 1. Dynamic class filter with placeholder
-    registered_rooms = sorted(list(set(
-        s.get("grade", "").strip() for s in st.session_state.students_db if s.get("grade")
-    )))
-
-    selected_class = st.selectbox(
-        "Select Class / Room to Mark",
-        options=registered_rooms,
-        index=None,
-        placeholder="Choose Class, Room, or Grade...",
-        key="attendance_class_selector"
-    )
-
-    # Filter roster: show all students if none picked, otherwise filter by room
-    if not selected_class:
-        active_roster = st.session_state.students_db
-    else:
-        active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
-
-    # Filter roster
-    if selected_class == "All Classes":
-        active_roster = st.session_state.students_db
-    else:
-        active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
-
-    # Quick Selection Buttons
-    col_a, col_b = st.columns(2)
-    with col_a:
-        mark_all = st.button("✅ Mark All Present", use_container_width=True)
-    with col_b:
-        clear_all = st.button("⭕ Clear All", use_container_width=True)
-
-    # 2. Checkbox Register
-    attendance_status = {}
-    st.write("---")
-    for s in active_roster:
-        s_id = s["id"]
-        # Default status handling
-        default_val = True
-        if clear_all:
-            default_val = False
-        elif mark_all:
-            default_val = True
-
-        attendance_status[s_id] = st.checkbox(
-            f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
-            value=default_val,
-            key=f"att_check_{s_id}_{today_str}"
-        )
-
-    st.write("---")
-
-    # 3. Submit and Store
-    if st.button("Submit Attendance Register", use_container_width=True, key="submit_att_btn"):
-        if "attendance_logs" not in st.session_state:
-            st.session_state.attendance_logs = {}
-
-        present_list = [s["name"] for s in active_roster if attendance_status.get(s["id"])]
-        absent_list = [s["name"] for s in active_roster if not attendance_status.get(s["id"])]
-
-        # Save to date key
-        st.session_state.attendance_logs[today_str] = {
-            "present": present_list,
-            "absent": absent_list,
-            "class": selected_class
-        }
-
-        st.success(f"Attendance recorded! Present: {len(present_list)} | Absent: {len(absent_list)}")
-
-        if absent_list:
-            st.warning(f"Absent Students Today: {', '.join(absent_list)}")
-    # --- TAB 4: NOTICE BOARD ---
-    with tab4:
-        st.subheader("Academy Notices")
-        for n in st.session_state.notice_board:
-            st.markdown(f"""
-            <div class="glass-card" style="padding: 16px; margin-bottom: 12px;">
-                <span style="color: #38bdf8; font-size: 12px; font-weight: 700;">{n['date']}</span>
-                <h4 style="margin: 4px 0 8px 0; font-size: 17px;">{n['title']}</h4>
-                <p style="margin: 0; color: #cbd5e1; font-size: 14px;">{n['content']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with st.expander("📢 Broadcast New Notice"):
-            n_title = st.text_input("Notice Headline")
-            n_body = st.text_area("Notice Message")
-            if st.button("Post Announcement"):
-                if n_title.strip() and n_body.strip():
-                    st.session_state.notice_board.insert(0, {
-                        "date": datetime.date.today().strftime("%Y-%m-%d"),
-                        "title": n_title.strip(),
-                        "content": n_body.strip()
-                    })
-                    st.success("Announcement published to notice board!")
+        with st.expander("🗑️ Delete Student from Roster", expanded=False):
+            if "students_db" in st.session_state and st.session_state.students_db:
+                student_options = [f"{s['name']} ({s['id']})" for s in st.session_state.students_db]
+                del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select")
+                if st.button("Confirm Delete", type="primary", use_container_width=True):
+                    chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
+                    st.session_state.students_db = [s for s in st.session_state.students_db if s["id"] != chosen_id]
+                    st.success("Student removed.")
                     st.rerun()
+            else:
+                st.write("No students available to remove.")
+
+    # ---------------- TAB 2: ATTENDANCE DESK ----------------
+    with tab_attendance:
+        st.subheader("Daily Attendance Register")
+        today_str = datetime.date.today().strftime("%Y-%m-%d")
+        st.caption(f"Logging Record for: **{today_str}**")
+
+        registered_rooms = sorted(list(set(
+            s.get("grade", "").strip() for s in st.session_state.get("students_db", []) if s.get("grade")
+        )))
+
+        if not registered_rooms:
+            st.info("No student rooms registered yet. Add students under Student Management first.")
+            active_roster = []
+        else:
+            selected_class = st.selectbox(
+                "Select Class / Room to Mark",
+                options=["All Classes"] + registered_rooms,
+                index=0,
+                key="att_desk_room_selector"
+            )
+            if selected_class == "All Classes":
+                active_roster = st.session_state.students_db
+            else:
+                active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            mark_all = st.button("✅ Mark All Present", use_container_width=True, key="mark_all_btn")
+        with col_b:
+            clear_all = st.button("⭕ Clear All", use_container_width=True, key="clear_all_btn")
+
+        attendance_status = {}
+        st.write("---")
+        for s in active_roster:
+            s_id = s["id"]
+            default_val = False if clear_all else True
+            attendance_status[s_id] = st.checkbox(
+                f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
+                value=default_val,
+                key=f"att_check_{s_id}_{today_str}"
+            )
+
+        if st.button("Submit Attendance Register", use_container_width=True, key="submit_att_btn"):
+            if "attendance_logs" not in st.session_state:
+                st.session_state.attendance_logs = {}
+
+            present_list = [s["name"] for s in active_roster if attendance_status.get(s["id"])]
+            absent_list = [s["name"] for s in active_roster if not attendance_status.get(s["id"])]
+
+            st.session_state.attendance_logs[today_str] = {
+                "present": present_list,
+                "absent": absent_list,
+                "class": selected_class if registered_rooms else "All"
+            }
+            st.success(f"Attendance recorded! Present: {len(present_list)} | Absent: {len(absent_list)}")
+
+    # ---------------- TAB 3: FINANCIAL DESK ----------------
+    with tab_financial:
+        st.subheader("Tuition Fee Management")
+        if "students_db" in st.session_state and st.session_state.students_db:
+            total_expected = sum(s.get("fee", 0) for s in st.session_state.students_db)
+            st.metric("Total Monthly Expected Revenue", f"₹{total_expected:,}")
+            st.dataframe(st.session_state.students_db, use_container_width=True)
+        else:
+            st.info("No financial records to display.")
+
+    # ---------------- TAB 4: NOTICE BOARD ----------------
+    with tab_notices:
+        st.subheader("Academy Notices & Announcements")
+        st.info("Broadcast channel active for students and parents.")
 def show_admin_dashboard():
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
