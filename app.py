@@ -303,30 +303,32 @@ def show_login_page():
                 elif clean_email == "admin@academy.com" and password == "admin123":
                     st.session_state.logged_in = True
                     st.session_state.user_role = "Admin"
+                    st.session_state.logged_in_role = "Admin"
                     st.session_state.user_email = clean_email
                     st.rerun()
                 elif clean_email == "parent@academy.com" and password == "parent123":
                     st.session_state.logged_in = True
                     st.session_state.user_role = "Parent"
+                    st.session_state.logged_in_role = "Parent"
                     st.session_state.user_email = clean_email
                     st.rerun()
                 else:
                     st.error("Invalid email or password. Please verify credentials.")
 def show_teacher_dashboard():
     # ----------------------------------------------------
-    # QUICK CONSOLE NAVIGATION SWITCHER
+    # QUICK CONSOLE NAVIGATION SWITCHER (Admin Only)
     # ----------------------------------------------------
-    nav_col1, nav_col2 = st.columns(2)
-    with nav_col1:
-        if st.button("⬅ Return to Admin Console", use_container_width=True, key="btn_to_admin"):
-            st.session_state.current_role = "admin"
-            st.rerun()
-    with nav_col2:
-        if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="btn_to_parent"):
-            st.session_state.current_role = "parent"
-            st.rerun()
-
-    st.write("")  # small spacer
+    if st.session_state.get("logged_in_role") == "Admin":
+        nav_col1, nav_col2 = st.columns(2)
+        with nav_col1:
+            if st.button("⬅ Return to Admin Console", use_container_width=True, key="btn_to_admin"):
+                st.session_state.user_role = "Admin"
+                st.rerun()
+        with nav_col2:
+            if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="btn_to_parent"):
+                st.session_state.user_role = "Parent"
+                st.rerun()
+        st.write("---")
 
     # 1. Retrieve dynamic academy or teacher name (fallback to a clean universal title)
     academy_name = st.session_state.get("academy_name", "Tuition Operations Console")
@@ -651,12 +653,31 @@ def show_admin_dashboard():
     else:
         st.info("No ledger entries available.")
 def show_parent_dashboard():
+    # ----------------------------------------------------
+    # QUICK CONSOLE NAVIGATION SWITCHER (Admin Only)
+    # ----------------------------------------------------
+    if st.session_state.get("logged_in_role") == "Admin":
+        p_nav1, p_nav2 = st.columns(2)
+        with p_nav1:
+            if st.button("⬅ Return to Admin Console", use_container_width=True, key="parent_to_admin"):
+                st.session_state.user_role = "Admin"
+                st.rerun()
+        with p_nav2:
+            if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="parent_to_teacher"):
+                st.session_state.user_role = "Teacher"
+                st.rerun()
+        st.write("---")
+
+    # Dynamic student name display (defaults cleanly if roster is empty)
+    students = st.session_state.get("students_db", [])
+    active_child = students[0]["name"] if students else "No Registered Child"
+
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
+        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />
         <div>
-            <h2 style="margin: 0; font-size: 22px;">Parent Portal</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing Student Profile: Aarav Sharma</p>
+            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Parent Portal</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing Student Profile: <strong style="color: #38bdf8;">{active_child}</strong></p>
         </div>
     </div>
     """, unsafe_allow_html=True)
