@@ -276,44 +276,53 @@ st.markdown(f"""
 # ----------------------------------------------------
 # 5. VIEW CONTROLLERS
 # ----------------------------------------------------
-def show_login_page():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown(f"""
-        <div style="text-align: center; margin-bottom: 24px;">
-            <img src="{logo_b64_str}" style="width: 72px; height: 72px; border-radius: 18px; margin-bottom: 12px; border: 2px solid #38bdf8;" />
-            <h1 style="font-size: 26px; margin: 0 0 8px 0;">MathScience Academy</h1>
-            <p style="color: #cbd5e1; font-size: 14px; margin: 0;">Welcome! Please log in to securely access your portal.</p>
+
+def show_login():
+    # Safe logo rendering without crashing if base64 string is missing
+    logo_html = ""
+    if "logo_b64_str" in globals() and globals().get("logo_b64_str"):
+        logo_html = f'<img src="{globals()["logo_b64_str"]}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />'
+
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+        {logo_html}
+        <div>
+            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">MathScience Academy</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Secure Portal Authentication</p>
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
-        with st.form("login_form"):
-            email = st.text_input("Registered Email Address", placeholder="name@academy.com")
-            password = st.text_input("Account Password", type="password")
-            submit = st.form_submit_button("Access Dashboard")
+    st.markdown("Welcome! Please log in to securely access your portal.")
 
-            if submit:
-                clean_email = email.strip().lower()
-                # Unified Authentication Credentials
-                if clean_email == "teacher1@gmail.com" and password == "123456":
-                    st.session_state.logged_in = True
-                    st.session_state.user_role = "Teacher"
-                    st.session_state.user_email = clean_email
-                    st.rerun()
-                elif clean_email == "admin@academy.com" and password == "admin123":
-                    st.session_state.logged_in = True
-                    st.session_state.user_role = "Admin"
-                    st.session_state.logged_in_role = "Admin"
-                    st.session_state.user_email = clean_email
-                    st.rerun()
-                elif clean_email == "parent@academy.com" and password == "parent123":
-                    st.session_state.logged_in = True
-                    st.session_state.user_role = "Parent"
-                    st.session_state.logged_in_role = "Parent"
-                    st.session_state.user_email = clean_email
-                    st.rerun()
-                else:
-                    st.error("Invalid email or password. Please verify credentials.")
+    with st.form("login_form"):
+        email_input = st.text_input("Registered Email Address", placeholder="name@academy.com")
+        password_input = st.text_input("Account Password", type="password", placeholder="••••••••")
+        submit_btn = st.form_submit_button("Access Dashboard", use_container_width=True)
+
+        if submit_btn:
+            clean_email = email_input.strip().lower()
+            if clean_email == "admin@academy.com" and password_input == "admin123":
+                st.session_state.logged_in = True
+                st.session_state.user_role = "Admin"
+                st.session_state.logged_in_role = "Admin"
+                st.session_state.user_email = clean_email
+                st.rerun()
+            elif clean_email == "parent@academy.com" and password_input == "parent123":
+                st.session_state.logged_in = True
+                st.session_state.user_role = "Parent"
+                st.session_state.logged_in_role = "Parent"
+                st.session_state.user_email = clean_email
+                st.rerun()
+            elif clean_email == "teacher@academy.com" and password_input == "teacher123":
+                st.session_state.logged_in = True
+                st.session_state.user_role = "Teacher"
+                st.session_state.logged_in_role = "Teacher"
+                st.session_state.user_email = clean_email
+                st.rerun()
+            else:
+                st.error("Invalid email or password. Please verify credentials.")
+
 def show_teacher_dashboard():
     # ----------------------------------------------------
     # QUICK CONSOLE NAVIGATION SWITCHER (Admin Only)
