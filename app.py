@@ -198,6 +198,17 @@ def update_student_parent_email(conn, student_id: str, parent_email: str | None)
     conn.execute("UPDATE students SET parent_email=? WHERE id=?", (parent_email or None, student_id))
     conn.commit()
 
+def update_student(conn, student_id: str, name: str, grade: str, subject: str, fee: int):
+    conn.execute(
+        "UPDATE students SET name=?, grade=?, subject=?, fee=? WHERE id=?",
+        (name, grade, subject, fee, student_id),
+    )
+    conn.commit()
+
+def get_student(conn, student_id: str):
+    row = conn.execute("SELECT * FROM students WHERE id=?", (student_id,)).fetchone()
+    return dict(row) if row else None
+
 # ---- Classrooms ----
 
 def list_classrooms(conn):
@@ -948,7 +959,23 @@ def render_child_card(child: dict):
 def show_parent_dashboard():
     render_admin_quick_nav("Parent")
 
+    is_admin_viewing = st.session_state.get("logged_in_role") == "Admin"
     parent_email = st.session_state.get("user_email", "")
+
+    if is_admin_viewing:
+        parent_accounts = list_parent_accounts(conn)
+        parent_emails = [p["email"] for p in parent_accounts]
+        if parent_emails:
+            chosen = st.selectbox(
+                "🔎 View Parent Portal as:",
+                options=parent_emails,
+                key="admin_view_as_parent"
+            )
+            parent_email = chosen
+        else:
+            st.info("No parent accounts exist yet — create one from the Admin Console.")
+            return
+
     my_children = list_students(conn, parent_email=parent_email)
 
     st.markdown(f"""
@@ -956,7 +983,9 @@ def show_parent_dashboard():
         {logo_img_tag()}
         <div>
             <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Parent Portal</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Signed in as <strong style="color: #38bdf8;">{parent_email}</strong></p>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">
+                {'Previewing as' if is_admin_viewing else 'Signed in as'} <strong style="color: #38bdf8;">{parent_email}</strong>
+            </p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1006,11 +1035,73 @@ def show_admin_dashboard():
         st.metric("Collected So Far", f"₹{total_collected:,}")
 
     st.write("---")
-    st.subheader("Master Student Records")
+    st.subheader("🧑‍🎓 Manage Students")
+
     if all_students:
         st.dataframe(all_students, use_container_width=True, hide_index=True)
     else:
         st.info("No student records available.")
+
+    with st.expander("➕ Add New Student", expanded=False):
+        with st.form("admin_new_student_form", clear_on_submit=True):
+            a_name = st.text_input("Full Name", placeholder="e.g., Aarav Sharma")
+            a_grade = st.text_input("Grade / Batch / Room", placeholder="e.g., Class 11 Physics")
+            a_subject = st.text_input("Assigned Subject", placeholder="e.g., Physics")
+            a_fee = st.number_input("Monthly Fee Amount (₹)", min_value=0, value=2500, step=100)
+            a_parent_email = st.text_input(
+                "Parent Email (optional)",
+                placeholder="parent@example.com",
+                help="Links this student to a parent account so only that family can see their fees, attendance and notices."
+            )
+            if st.form_submit_button("Save Student", use_container_width=True):
+                if a_name.strip():
+                    add_student(
+                        conn,
+                        a_name.strip(),
+                        a_grade.strip() or "General",
+                        a_subject.strip() or "General",
+                        a_fee,
+                        a_parent_email.strip().lower() or None,
+                    )
+                    st.success(f"Added {a_name.strip()} successfully!")
+                    st.rerun()
+                else:
+                    st.warning("Please enter student name.")
+
+    with st.expander("✏️ Edit Student", expanded=False):
+        if all_students:
+            edit_options = [f"{s['name']} ({s['id']})" for s in all_students]
+            edit_choice = st.selectbox("Select Student to Edit", edit_options, key="admin_edit_stu_select")
+            editing = all_students[edit_options.index(edit_choice)]
+
+            with st.form("admin_edit_student_form"):
+                e_name = st.text_input("Full Name", value=editing["name"])
+                e_grade = st.text_input("Grade / Batch / Room", value=editing.get("grade", ""))
+                e_subject = st.text_input("Assigned Subject", value=editing.get("subject", ""))
+                e_fee = st.number_input("Monthly Fee Amount (₹)", min_value=0, value=int(editing.get("fee", 0)), step=100)
+                e_parent_email = st.text_input(
+                    "Parent Email (leave blank to unlink)",
+                    value=editing.get("parent_email") or ""
+                )
+                if st.form_submit_button("Save Changes", use_container_width=True):
+                    update_student(conn, editing["id"], e_name.strip(), e_grade.strip() or "General", e_subject.strip() or "General", e_fee)
+                    update_student_parent_email(conn, editing["id"], e_parent_email.strip().lower() or None)
+                    st.success("Student record updated.")
+                    st.rerun()
+        else:
+            st.write("No students available to edit.")
+
+    with st.expander("🗑️ Delete Student", expanded=False):
+        if all_students:
+            del_options = [f"{s['name']} ({s['id']})" for s in all_students]
+            del_choice = st.selectbox("Select Student to Remove", del_options, key="admin_del_stu_select")
+            if st.button("Confirm Delete", type="primary", use_container_width=True, key="admin_del_stu_btn"):
+                chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
+                delete_student(conn, chosen_id)
+                st.success("Student removed.")
+                st.rerun()
+        else:
+            st.write("No students available to remove.")
 
     st.write("---")
     st.subheader("Master Financial Ledger")
