@@ -1128,5 +1128,6 @@ else:
         "Parent": show_parent_dashboard
     }
 
-    render_func = dashboard_routes.get(active_view, show_admin_dashboard)
+    current_active_view = st.session_state.get("active_view", "Admin")
+    render_func = dashboard_routes.get(current_active_view, show_admin_dashboard)
     render_func()
