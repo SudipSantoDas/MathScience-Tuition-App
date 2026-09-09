@@ -1076,23 +1076,26 @@ else:
 
     # ----------------------------------------------------
     # ----------------------------------------------------
-# FINAL APP ENTRY POINT & ROUTER
+# ABSOLUTE APP EXECUTION & ROUTER GUARD
 # ----------------------------------------------------
-if not st.session_state.get("logged_in", False):
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
     show_login_page()
 else:
-    # Safely pull role and active view states
+    # Pull current role and active view safely
     logged_role = st.session_state.get("logged_in_role", "Teacher")
     active_view = st.session_state.get("active_view", st.session_state.get("user_role", "Teacher"))
 
-    # Admin return header shortcut if viewing another console
+    # Admin return header shortcut if inspecting another console
     if logged_role == "Admin" and active_view != "Admin":
         if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
             st.session_state.active_view = "Admin"
             st.session_state.user_role = "Admin"
             st.rerun()
 
-    # Main Single-Dashboard Renderer
+    # Single-Dashboard Dispatcher (mutually exclusive)
     if active_view == "Admin":
         show_admin_dashboard()
     elif active_view == "Teacher":
