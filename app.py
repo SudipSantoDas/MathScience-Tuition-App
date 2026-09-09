@@ -1075,28 +1075,29 @@ else:
             st.rerun()
 
     # ----------------------------------------------------
-    # MAIN APP ENTRY POINT & ROUTER
     # ----------------------------------------------------
-    if not st.session_state.get("logged_in", False):
-        show_login_page()
+# FINAL APP ENTRY POINT & ROUTER
+# ----------------------------------------------------
+if not st.session_state.get("logged_in", False):
+    show_login_page()
+else:
+    # Safely pull role and active view states
+    logged_role = st.session_state.get("logged_in_role", "Teacher")
+    active_view = st.session_state.get("active_view", st.session_state.get("user_role", "Teacher"))
+
+    # Admin return header shortcut if viewing another console
+    if logged_role == "Admin" and active_view != "Admin":
+        if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
+            st.session_state.active_view = "Admin"
+            st.session_state.user_role = "Admin"
+            st.rerun()
+
+    # Main Single-Dashboard Renderer
+    if active_view == "Admin":
+        show_admin_dashboard()
+    elif active_view == "Teacher":
+        show_teacher_dashboard()
+    elif active_view == "Parent":
+        show_parent_dashboard()
     else:
-        # Safely pull role and active view states
-        logged_role = st.session_state.get("logged_in_role", "Teacher")
-        active_view = st.session_state.get("active_view", st.session_state.get("user_role", "Teacher"))
-
-        # Admin return header shortcut if viewing another console
-        if logged_role == "Admin" and active_view != "Admin":
-            if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
-                st.session_state.active_view = "Admin"
-                st.session_state.user_role = "Admin"
-                st.rerun()
-
-        # Main Single-Dashboard Renderer
-        if active_view == "Admin":
-            show_admin_dashboard()
-        elif active_view == "Teacher":
-            show_teacher_dashboard()
-        elif active_view == "Parent":
-            show_parent_dashboard()
-        else:
-            show_admin_dashboard()
+        show_admin_dashboard()
