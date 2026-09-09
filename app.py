@@ -126,7 +126,7 @@ st.markdown(f"""
     }}
 
     /* Dropdown Menus & Selectboxes Contrast Fix */
-   div[data-baseweb="select"] > div {{
+    div[data-baseweb="select"] > div {{
         background-color: #1e293b !important;
         border: 1px solid #334155 !important;
         color: #ffffff !important;
@@ -323,13 +323,8 @@ def show_login():
             else:
                 st.error("Invalid email or password. Please verify credentials.")
 
-        # Global fallback for logo string to prevent NameErrors across functions
-if "logo_b64_str" not in globals():
-    logo_b64_str = ""
-
 def show_teacher_dashboard():
-    # Fix the top red navigation buttons for Admin / Parent role switching
-    if st.session_state.get("logged_in_role") == "Admin" or st.session_state.get("user_role") == "Admin":
+    if st.session_state.get("logged_in_role") == "Admin":
         nav_col1, nav_col2 = st.columns(2)
         with nav_col1:
             if st.button("⬅ Return to Admin Console", use_container_width=True, key="btn_to_admin"):
@@ -346,14 +341,9 @@ def show_teacher_dashboard():
     academy_name = st.session_state.get("academy_name", "Tuition Operations Console")
     teacher_name = st.session_state.get("user_name", "Teacher Desk")
 
-    # Safe logo rendering
-    logo_html = ""
-    if "logo_b64_str" in globals() and globals().get("logo_b64_str"):
-        logo_html = f'<img src="{globals()["logo_b64_str"]}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />'
-
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
-        {logo_html}
+        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />
         <div>
             <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{academy_name}</h2>
             <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{teacher_name} • Operations Console</p>
@@ -413,308 +403,378 @@ def show_teacher_dashboard():
         </div>
         """, unsafe_allow_html=True)
 
-    # All 4 Operations Tabs (Including Tab 3 Financial Desk with OK Confirmation Button)
     tab_students, tab_attendance, tab_financial, tab_notices = st.tabs([
-        "🎓 Student Management", 
-        "📅 Attendance Desk", 
-        "💰 Financial Desk", 
+        "👥 Student Management",
+        "📅 Attendance Desk",
+        "💰 Financial Desk",
         "📢 Notice Board"
     ])
 
     with tab_students:
         st.subheader("Academy Student Roster")
-        students_list = st.session_state.get("students_db", [])
-        if students_list:
-            st.dataframe(students_list, use_container_width=True, hide_index=True)
+        if "students_db" in st.session_state and st.session_state.students_db:
+            st.dataframe(st.session_state.students_db, use_container_width=True, hide_index=True)
         else:
-            st.info("No students added yet. Use the form below to register your first student.")
+            st.info("No students added yet.")
 
         with st.expander("➕ Add New Student to Roster", expanded=False):
             with st.form("new_student_form_roster", clear_on_submit=True):
                 stu_name = st.text_input("Full Name", placeholder="e.g., Aarav Sharma")
                 default_grade = active_room["title"] if active_room else ""
                 default_subject = active_room["subject"] if active_room else ""
-                
-                s_col1, s_col2 = st.columns(2)
-                with s_col1:
-                    stu_grade = st.text_input("Grade", value=default_grade)
-                with s_col2:
-                    stu_subj = st.text_input("Subject", value=default_subject)
-                
-                stu_fee = st.number_input("Monthly Fee (₹)", min_value=0, value=active_room.get("fee", 2500) if active_room else 2500, step=100)
+                default_fee = int(active_room["fee"]) if active_room else 2500
 
-                if st.form_submit_button("Register Student", use_container_width=True):
+                stu_grade = st.text_input("Grade / Batch / Room", value=default_grade)
+                stu_subject = st.text_input("Assigned Subject", value=default_subject)
+                stu_fee = st.number_input("Monthly Fee Amount (₹)", min_value=0, value=default_fee, step=100)
+
+                if st.form_submit_button("Save Student to Records", use_container_width=True):
                     if stu_name.strip():
+                        new_id = f"STU{101 + len(st.session_state.get('students_db', []))}"
                         if "students_db" not in st.session_state:
                             st.session_state.students_db = []
-                        new_id = f"STU{101 + len(st.session_state.students_db)}"
                         st.session_state.students_db.append({
                             "id": new_id,
                             "name": stu_name.strip(),
                             "grade": stu_grade.strip() or "General",
-                            "subject": stu_subj.strip() or "General",
+                            "subject": stu_subject.strip() or "General",
                             "fee": stu_fee
                         })
-                        st.success(f"Student {stu_name} registered successfully!")
+                        st.success(f"Added {stu_name.strip()}!")
                         st.rerun()
-                    else:
-                        st.warning("Please enter a student name.")
 
         with st.expander("🗑️ Delete Student from Roster", expanded=False):
-            if students_list:
-                student_names = [f"{s['name']} ({s.get('grade', '')})" for s in students_list]
-                del_choice = st.selectbox("Select Student to Delete", options=student_names, key="unique_delete_student_selectbox")
-                if st.button("Confirm Deletion", type="primary", use_container_width=True):
-                    idx_to_del = student_names.index(del_choice)
-                    removed = st.session_state.students_db.pop(idx_to_del)
-                    st.success(f"Removed {removed['name']} from roster.")
+            if st.session_state.get("students_db"):
+                student_options = [f"{s['name']} ({s['id']})" for s in st.session_state.students_db]
+                del_choice = st.selectbox("Select Student to Remove", student_options, key=f"del_stu_select_{id(student_options)}")
+                if st.button("Confirm Delete", type="primary", use_container_width=True):
+                    chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
+                    st.session_state.students_db = [s for s in st.session_state.students_db if s["id"] != chosen_id]
+                    st.success("Student removed.")
                     st.rerun()
-            else:
-                st.info("No students available to delete.")
 
     with tab_attendance:
-        st.subheader("Attendance Tracking")
-        st.info("Mark and review daily attendance logs for active batches.")
+        st.subheader("Daily Attendance Register")
+        
+        today_str = datetime.date.today().strftime("%Y-%m-%d")
+        st.caption(f"Logging Record for: **{today_str}**")
+
+        registered_rooms = sorted(list(set(
+            s.get("grade", "").strip() for s in st.session_state.get("students_db", []) if s.get("grade")
+        )))
+
+        if not registered_rooms:
+            st.info("Add students first to log attendance.")
+            active_roster = []
+        else:
+            selected_class = st.selectbox("Select Class / Room to Mark", options=["All Classes"] + registered_rooms, index=0)
+            if selected_class == "All Classes":
+                active_roster = st.session_state.students_db
+            else:
+                active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            mark_all = st.button("✅ Mark All Present", use_container_width=True)
+        with col_b:
+            clear_all = st.button("⭕ Clear All", use_container_width=True)
+
+        att_status = {}
+        for s in active_roster:
+            s_id = s["id"]
+            default_val = False if clear_all else True
+            att_status[s_id] = st.checkbox(
+                f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
+                value=default_val,
+                key=f"att_check_{s_id}_{today_str}"
+            )
+
+        if st.button("Submit Attendance Register", use_container_width=True):
+            if "attendance_logs" not in st.session_state:
+                st.session_state.attendance_logs = {}
+            p_list = [s["name"] for s in active_roster if att_status.get(s["id"])]
+            a_list = [s["name"] for s in active_roster if not att_status.get(s["id"])]
+            st.session_state.attendance_logs[today_str] = {"present": p_list, "absent": a_list}
+            st.success(f"Attendance recorded! Present: {len(p_list)} | Absent: {len(a_list)}")
 
     with tab_financial:
         st.subheader("Tuition Fee Management")
-
         if "payment_status" not in st.session_state:
             st.session_state.payment_status = {}
 
-        total_collected = 0
-        total_pending = 0
-        students_list = st.session_state.get("students_db", [])
+        if st.session_state.get("students_db"):
+            total_expected = sum(s.get("fee", 0) for s in st.session_state.students_db)
+            total_collected = sum(
+                s.get("fee", 0) for s in st.session_state.students_db
+                if st.session_state.payment_status.get(s["id"], "Unpaid") == "Paid"
+            )
+            total_due = total_expected - total_collected
 
-        for student in students_list:
-            s_id = student.get("id", student.get("name"))
-            fee_amt = student.get("fee", 2500)
-            status = st.session_state.get("payment_status", {}).get(s_id, "Unpaid")
-            if status == "Paid":
-                total_collected += fee_amt
+            c_f1, c_f2 = st.columns(2)
+            with c_f1:
+                st.metric("Total Collected", f"₹{total_collected:,}")
+            with c_f2:
+                st.metric("Pending / Due", f"₹{total_due:,}")
+
+            st.write("---")
+            st.markdown("### Update Student Payment Status")
+            for student in st.session_state.students_db:
+                s_id = student["id"]
+                current_status = st.session_state.payment_status.get(s_id, "Unpaid")
+                st.markdown(f"**{student['name']}** ({student['grade']}) • Fee: ₹{student['fee']:,}")
+                new_status = st.selectbox(
+                    "Status",
+                    ["Unpaid", "Paid"],
+                    index=0 if current_status == "Unpaid" else 1,
+                    key=f"status_select_{s_id}"
+                )
+                st.session_state.payment_status[s_id] = new_status
+
+            unpaid = [s for s in st.session_state.students_db if st.session_state.payment_status.get(s["id"], "Unpaid") == "Unpaid"]
+            if unpaid:
+                st.markdown(f"""
+                <div style="background-color: rgba(239, 68, 68, 0.2); border: 1.5px solid #ef4444; border-radius: 10px; padding: 12px 16px; margin-top: 15px;">
+                    <strong style="color: #fca5a5; font-size: 15px;">⚠️ Pending Fee Reminders:</strong>
+                    <p style="color: #ffffff; font-size: 14px; margin: 6px 0 0 0;">
+                        {len(unpaid)} student(s) have unpaid balances totaling <span style="color: #fca5a5; font-weight: 700;">₹{total_due:,}</span>.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
             else:
-                total_pending += fee_amt
-
-        col_fin1, col_fin2 = st.columns(2)
-        with col_fin1:
-            st.caption("Total Collected")
-            st.markdown(f"<h3 style='color: #4ade80; margin-top: -6px;'>₹{total_collected:,}</h3>", unsafe_allow_html=True)
-        with col_fin2:
-            st.caption("Pending / Due")
-            st.markdown(f"<h3 style='color: #f87171; margin-top: -6px;'>₹{total_pending:,}</h3>", unsafe_allow_html=True)
-
-        st.write("---")
-        st.markdown("#### Update Student Payment Status")
-
-        if students_list:
-            with st.form("financial_update_form"):
-                updated_statuses = {}
-                for idx, student in enumerate(students_list):
-                    s_id = student.get("id", student.get("name"))
-                    s_name = student.get("name")
-                    s_grade = student.get("grade")
-                    s_fee = student.get("fee", 2500)
-
-                    current_status = st.session_state.get("payment_status", {}).get(s_id, "Unpaid")
-                    
-                    st.markdown(f"**{s_name}** ({s_grade}) • Fee: ₹{s_fee:,}")
-                    new_status = st.selectbox(
-                        "Status", 
-                        ["Unpaid", "Paid"], 
-                        index=0 if current_status == "Unpaid" else 1, 
-                        key=f"pay_status_{s_id}_{idx}"
-                    )
-                    updated_statuses[s_id] = new_status
-                    st.write("")
-
-                submitted = st.form_submit_button("💾 Confirm & Save Payment Status", use_container_width=True)
-                if submitted:
-                    st.session_state.payment_status = updated_statuses
-                    st.success("Payment statuses updated successfully!")
-                    st.rerun()
+                st.success("🎉 All students have paid their dues!")
         else:
-            st.info("No students available for fee tracking.")
+            st.info("No enrolled students found.")
 
     with tab_notices:
-        st.subheader("Academy Notice Board")
-        st.info("Broadcast announcements and urgent notices to student/parent portals.")
+        st.subheader("📢 Academy Notice Board")
+        if "academy_notices" not in st.session_state:
+            st.session_state.academy_notices = []
 
-    def show_parent_dashboard():
-        if st.session_state.get("logged_in_role") == "Admin":
-            p_nav1, p_nav2 = st.columns(2)
-            with p_nav1:
-                if st.button("⬅ Return to Admin Console", use_container_width=True, key="parent_to_admin"):
-                    st.session_state.user_role = "Admin"
-                    st.rerun()
-            with p_nav2:
-                if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="parent_to_teacher"):
-                    st.session_state.user_role = "Teacher"
-                    st.rerun()
-            st.write("---")
-    
-        students = st.session_state.get("students_db", [])
-        if not students:
-            st.info("No registered students found in the academy roster.")
-            return
-    
-        child_names = [s["name"] for s in students]
-        selected_name = st.selectbox("Select Student Profile:", child_names, index=0, key="parent_child_select")
-        
-        child = next((s for s in students if s["name"] == selected_name), students[0])
-        child_id = child.get("id", "")
-    
-        st.markdown(f"""
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-            <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />
-            <div>
-                <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Parent Portal</h2>
-                <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing Student Profile: <strong style="color: #38bdf8;">{child.get('name')}</strong></p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-        payment_map = st.session_state.get("payment_status", {})
-        fee_status = payment_map.get(child_id, "Unpaid")
-        status_badge_color = "#4ade80" if fee_status == "Paid" else "#f87171"
-    
-        attendance_logs = st.session_state.get("attendance_logs", {})
-        total_days = 0
-        present_days = 0
-        for day_record in attendance_logs.values():
-            total_days += 1
-            if child["name"] in day_record.get("present", []):
-                present_days += 1
-    
-        attendance_pct = int((present_days / total_days) * 100) if total_days > 0 else 100
-    
-        st.markdown(f"""
-        <div style="background-color: #1e293b; border: 1.5px solid #334155; border-radius: 14px; padding: 18px; margin-top: 10px;">
-            <h3 style="color: #ffffff; margin-top: 0; font-size: 18px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
-                Academic & Tuition Status
-            </h3>
-            <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
-                Student Name: <strong style="color: #ffffff;">{child.get('name')}</strong>
-            </p>
-            <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
-                Batch / Grade: <strong style="color: #38bdf8;">{child.get('grade')}</strong> 
-                <span style="color: #64748b;">({child.get('subject', 'General')})</span>
-            </p>
-            <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
-                Attendance Record: <strong style="color: #38bdf8;">{attendance_pct}%</strong> 
-                <span style="color: #94a3b8; font-size: 13px;">({present_days}/{total_days} sessions attended)</span>
-            </p>
-            <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
-                Monthly Tuition Fee: <strong style="color: #ffffff;">₹{child.get('fee', 2500):,}</strong>
-            </p>
-            <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
-                Fee Status: <strong style="color: {status_badge_color};">{fee_status}</strong>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-        st.write("---")
-        if st.button("🚪 Log Out", use_container_width=True, key="parent_logout_btn"):
-            st.session_state.clear()
-            st.rerun()
-    
-    def show_admin_dashboard():
-        if "students_db" not in st.session_state:
-            st.session_state.students_db = []
-        if "payment_status" not in st.session_state:
-            st.session_state.payment_status = {}
-    
-        logo_html = f'<img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />' if logo_b64_str else ''
-    
-        st.markdown(f"""
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-            {logo_html}
-            <div>
-                <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Admin Master Console</h2>
-                <p style="margin: 0; color: #94a3b8; font-size: 13px;">Executive Management • Full Academy Controls</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-        col_nav1, col_nav2 = st.columns(2)
-        with col_nav1:
-            if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="admin_to_teacher_btn"):
+        with st.expander("➕ Broadcast New Announcement", expanded=False):
+            with st.form("teacher_broadcast_form", clear_on_submit=True):
+                n_title = st.text_input("Announcement Title", placeholder="e.g., Test Schedule / Holiday")
+                n_body = st.text_area("Message / Details", placeholder="Enter announcement body...")
+                n_priority = st.selectbox("Priority Level", ["Normal", "Urgent", "Exam/Test"])
+                
+                if st.form_submit_button("Publish Announcement", use_container_width=True):
+                    if n_title.strip() and n_body.strip():
+                        st.session_state.academy_notices.insert(0, {
+                            "title": n_title.strip(),
+                            "body": n_body.strip(),
+                            "priority": n_priority,
+                            "date": datetime.date.today().strftime("%d %b %Y")
+                        })
+                        st.success("Notice published!")
+                        st.rerun()
+                    else:
+                        st.warning("Please provide a title and details.")
+
+        if st.session_state.academy_notices:
+            for n in st.session_state.academy_notices:
+                color = "#ef4444" if n["priority"] == "Urgent" else ("#f59e0b" if n["priority"] == "Exam/Test" else "#38bdf8")
+                st.markdown(f"""
+                <div style="background-color: #1e293b; border-left: 4px solid {color}; border-radius: 8px; padding: 12px 16px; margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong style="color: #ffffff; font-size: 15px;">{n['title']}</strong>
+                        <span style="color: #94a3b8; font-size: 12px;">{n['date']}</span>
+                    </div>
+                    <p style="color: #cbd5e1; font-size: 13px; margin: 6px 0 0 0; line-height: 1.4;">{n['body']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No notices broadcasted yet.")
+
+    st.write("---")
+    if st.button("🚪 Log Out", use_container_width=True, key="teacher_logout_btn"):
+        st.session_state.clear()
+        st.rerun()
+
+def show_parent_dashboard():
+    if st.session_state.get("logged_in_role") == "Admin":
+        p_nav1, p_nav2 = st.columns(2)
+        with p_nav1:
+            if st.button("⬅ Return to Admin Console", use_container_width=True, key="parent_to_admin"):
+                st.session_state.user_role = "Admin"
+                st.session_state.active_view = "Admin"
+                st.rerun()
+        with p_nav2:
+            if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="parent_to_teacher"):
+                st.session_state.user_role = "Teacher"
                 st.session_state.active_view = "Teacher"
                 st.rerun()
-        with col_nav2:
-            if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="admin_to_parent_btn"):
-                st.session_state.active_view = "Parent"
-                st.rerun()
-    
         st.write("---")
+
+    students = st.session_state.get("students_db", [])
+    if not students:
+        st.info("No registered students found in the academy roster.")
+        return
+
+    child_names = [s["name"] for s in students]
+    selected_name = st.selectbox("Select Student Profile:", child_names, index=0, key="parent_child_select")
     
-        students = st.session_state.students_db
-        enrolled_count = len(students)
-        total_rev = sum(s.get("fee", 0) for s in students)
-    
-        st.caption("Enrolled Students")
-        st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>{enrolled_count}</h2>", unsafe_allow_html=True)
-    
-        st.caption("Total Revenue")
-        st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>₹{total_rev:,}</h2>", unsafe_allow_html=True)
-    
-        st.write("---")
-        st.subheader("Master Student Records")
-        if students:
-            st.dataframe(students, use_container_width=True, hide_index=True)
-        else:
-            st.info("No student records available.")
-    
-    # ----------------------------------------------------
-    # 6. CORE APP ROUTER & SIDEBAR CONTROLLER
-    # ----------------------------------------------------
-    if not st.session_state.get("logged_in", False):
-        show_login()
+    child = next((s for s in students if s["name"] == selected_name), students[0])
+    child_id = child.get("id", "")
+
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />
+        <div>
+            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Parent Portal</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing Student Profile: <strong style="color: #38bdf8;">{child.get('name')}</strong></p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    payment_map = st.session_state.get("payment_status", {})
+    fee_status = payment_map.get(child_id, "Unpaid")
+    status_badge_color = "#4ade80" if fee_status == "Paid" else "#f87171"
+
+    attendance_logs = st.session_state.get("attendance_logs", {})
+    total_days = 0
+    present_days = 0
+    for day_record in attendance_logs.values():
+        total_days += 1
+        if child["name"] in day_record.get("present", []):
+            present_days += 1
+
+    attendance_pct = int((present_days / total_days) * 100) if total_days > 0 else 100
+
+    st.markdown(f"""
+    <div style="background-color: #1e293b; border: 1.5px solid #334155; border-radius: 14px; padding: 18px; margin-top: 10px;">
+        <h3 style="color: #ffffff; margin-top: 0; font-size: 18px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
+            Academic & Tuition Status
+        </h3>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Student Name: <strong style="color: #ffffff;">{child.get('name')}</strong>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Batch / Grade: <strong style="color: #38bdf8;">{child.get('grade')}</strong> 
+            <span style="color: #64748b;">({child.get('subject', 'General')})</span>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Attendance Record: <strong style="color: #38bdf8;">{attendance_pct}%</strong> 
+            <span style="color: #94a3b8; font-size: 13px;">({present_days}/{total_days} sessions attended)</span>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Monthly Tuition Fee: <strong style="color: #ffffff;">₹{child.get('fee', 2500):,}</strong>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Fee Status: <strong style="color: {status_badge_color};">{fee_status}</strong>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.write("---")
+    if st.button("🚪 Log Out", use_container_width=True, key="parent_logout_btn"):
+        st.session_state.clear()
+        st.rerun()
+
+def show_admin_dashboard():
+    if "students_db" not in st.session_state:
+        st.session_state.students_db = []
+    if "payment_status" not in st.session_state:
+        st.session_state.payment_status = {}
+
+    logo_html = f'<img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />' if logo_b64_str else ''
+
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+        {logo_html}
+        <div>
+            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Admin Master Console</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Executive Management • Full Academy Controls</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="admin_to_teacher_btn"):
+            st.session_state.user_role = "Teacher"
+            st.session_state.active_view = "Teacher"
+            st.rerun()
+    with col_nav2:
+        if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="admin_to_parent_btn"):
+            st.session_state.user_role = "Parent"
+            st.session_state.active_view = "Parent"
+            st.rerun()
+
+    st.write("---")
+
+    students = st.session_state.students_db
+    enrolled_count = len(students)
+    total_rev = sum(s.get("fee", 0) for s in students)
+
+    st.caption("Enrolled Students")
+    st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>{enrolled_count}</h2>", unsafe_allow_html=True)
+
+    st.caption("Total Revenue")
+    st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>₹{total_rev:,}</h2>", unsafe_allow_html=True)
+
+    st.write("---")
+    st.subheader("Master Student Records")
+    if students:
+        st.dataframe(students, use_container_width=True, hide_index=True)
     else:
-        logged_role = st.session_state.get("logged_in_role", "Teacher")
-        active_view = st.session_state.get("active_view", logged_role)
-    
-        if logged_role != "Admin":
-            active_view = logged_role
-    
-        with st.sidebar:
-            st.markdown(f"""
-            <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
-                <div style="display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%); color: #ffffff; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 8px;">
-                    {logged_role} Mode
-                </div>
-                <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{st.session_state.get('user_email', '')}</p>
+        st.info("No student records available.")
+
+# ----------------------------------------------------
+# 6. CORE APP ROUTER & SIDEBAR CONTROLLER
+# ----------------------------------------------------
+if not st.session_state.get("logged_in", False):
+    show_login()
+else:
+    logged_role = st.session_state.get("logged_in_role", "Teacher")
+    active_view = st.session_state.get("active_view", logged_role)
+
+    if logged_role != "Admin":
+        active_view = logged_role
+
+    with st.sidebar:
+        st.markdown(f"""
+        <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
+            <div style="display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%); color: #ffffff; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 8px;">
+                {logged_role} Mode
             </div>
-            """, unsafe_allow_html=True)
-    
-            if logged_role == "Admin":
-                st.markdown("### 🛠️ Admin Navigation")
-                pages = ["Admin", "Teacher", "Parent"]
-                
-                if st.session_state.get("active_view") not in pages:
-                    st.session_state.active_view = "Admin"
-    
-                def sync_sidebar_desk():
-                    st.session_state.active_view = st.session_state.admin_sidebar_nav
-    
-                current_idx = pages.index(st.session_state.get("active_view", "Admin"))
-                st.selectbox(
-                    "Go to Desk:",
-                    pages,
-                    index=current_idx,
-                    key="admin_sidebar_nav",
-                    on_change=sync_sidebar_desk
-                )
-    
-            if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
-                st.session_state.clear()
-                st.rerun()
-    
-        dashboard_routes = {
-            "Admin": show_admin_dashboard,
-            "Teacher": show_teacher_dashboard,
-            "Parent": show_parent_dashboard
-        }
-    
-        current_active_view = st.session_state.get("active_view", "Admin")
-        active_dashboard_func = dashboard_routes.get(current_active_view, show_admin_dashboard)
-        active_dashboard_func()
+            <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{st.session_state.get('user_email', '')}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if logged_role == "Admin":
+            st.markdown("### 🛠️ Admin Navigation")
+            pages = ["Admin", "Teacher", "Parent"]
+            
+            if st.session_state.get("active_view") not in pages:
+                st.session_state.active_view = "Admin"
+
+            def sync_sidebar_desk():
+                st.session_state.active_view = st.session_state.admin_sidebar_nav
+                if st.session_state.admin_sidebar_nav == "Teacher":
+                    st.session_state.user_role = "Teacher"
+                elif st.session_state.admin_sidebar_nav == "Parent":
+                    st.session_state.user_role = "Parent"
+                else:
+                    st.session_state.user_role = "Admin"
+
+            current_idx = pages.index(st.session_state.active_view if st.session_state.active_view in pages else "Admin")
+            st.selectbox(
+                "Go to Desk:",
+                pages,
+                index=current_idx,
+                key="admin_sidebar_nav",
+                on_change=sync_sidebar_desk
+            )
+
+        if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
+
+    dashboard_routes = {
+        "Admin": show_admin_dashboard,
+        "Teacher": show_teacher_dashboard,
+        "Parent": show_parent_dashboard
+    }
+
+    current_active_view = st.session_state.get("active_view", "Admin")
+    active_dashboard_func = dashboard_routes.get(current_active_view, show_admin_dashboard)
+    active_dashboard_func()
