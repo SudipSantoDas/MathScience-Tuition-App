@@ -1074,33 +1074,32 @@ else:
             st.session_state.clear()
             st.rerun()
 
-    # ----------------------------------------------------
-    # ----------------------------------------------------
-# ABSOLUTE APP EXECUTION & ROUTER GUARD
-# ----------------------------------------------------
+        # ABSOLUTE APP EXECUTION & ROUTER GUARD
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+    st.session_state.logged_role = "Teacher"
+    st.session_state.active_view = "Teacher"
 
 if not st.session_state.logged_in:
     show_login_page()
 else:
-    # Pull current role and active view safely
-    logged_role = st.session_state.get("logged_in_role", "Teacher")
-    active_view = st.session_state.get("active_view", st.session_state.get("user_role", "Teacher"))
+    # Ensure safe defaults if keys are missing
+    logged_role = st.session_state.get("logged_role", "Teacher")
+    active_view = st.session_state.get("active_view", logged_role)
 
-    # Admin return header shortcut if inspecting another console
+    # Admin return header shortcut in the sidebar for persistent access
     if logged_role == "Admin" and active_view != "Admin":
-        if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
+        if st.sidebar.button("⬅️ Return to Admin Console", key="admin_sidebar_return_btn", use_container_width=True):
             st.session_state.active_view = "Admin"
             st.session_state.user_role = "Admin"
             st.rerun()
 
-    # Single-Dashboard Dispatcher (mutually exclusive)
-    if active_view == "Admin":
-        show_admin_dashboard()
-    elif active_view == "Teacher":
-        show_teacher_dashboard()
-    elif active_view == "Parent":
-        show_parent_dashboard()
-    else:
-        show_admin_dashboard()
+    # Single-Dashboard Dispatcher with strict fallback
+    dashboard_routes = {
+        "Admin": show_admin_dashboard,
+        "Teacher": show_teacher_dashboard,
+        "Parent": show_parent_dashboard
+    }
+
+    render_dashboard = dashboard_routes.get(active_view, show_teacher_dashboard)
+    render_dashboard()
