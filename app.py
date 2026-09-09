@@ -456,7 +456,7 @@ def show_teacher_dashboard():
         with st.expander("🗑️ Delete Student from Roster", expanded=False):
             if st.session_state.get("students_db"):
                 student_options = [f"{s['name']} ({s['id']})" for s in st.session_state.students_db]
-                del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select")
+                del_choice = st.selectbox("Select Student to Remove", student_options, key=f"del_stu_select_{id(student_options)}")
                 if st.button("Confirm Delete", type="primary", use_container_width=True):
                     chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
                     st.session_state.students_db = [s for s in st.session_state.students_db if s["id"] != chosen_id]
