@@ -390,7 +390,7 @@ def show_teacher_dashboard():
     active_room = None
     if st.session_state.classrooms:
         room_labels = [f"{r['title']} — {r['subject']} ({r['section']})" for r in st.session_state.classrooms]
-        selected_label = st.selectbox("Select Active Classroom to Manage:", room_labels, key="active_room_picker")
+        selected_label = st.selectbox("Select Active Classroom to Manage:", options=classroom_options, key="unique_classroom_selector_main")
         active_room = st.session_state.classrooms[room_labels.index(selected_label)]
 
         st.markdown(f"""
