@@ -1064,8 +1064,7 @@ else:
         if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
             st.session_state.clear()
             st.rerun()
-
-            def show_admin_dashboard():
+def show_admin_dashboard():
     # Header Banner
     logo_html = ""
     if "logo_b64_str" in globals() and globals().get("logo_b64_str"):
@@ -1125,7 +1124,9 @@ else:
         st.dataframe(students, use_container_width=True, hide_index=True)
     else:
         st.info("No financial transactions logged yet.")
+        
 
+            
    # Determine view to render
 role = st.session_state.get("logged_in_role", "Admin")
 current_view = st.session_state.get("active_view", "Admin") if role == "Admin" else role
