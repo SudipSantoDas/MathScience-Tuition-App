@@ -668,32 +668,78 @@ def show_parent_dashboard():
                 st.rerun()
         st.write("---")
 
-    # Dynamic student name display (defaults cleanly if roster is empty)
+    # Dynamic student list check
     students = st.session_state.get("students_db", [])
-    active_child = students[0]["name"] if students else "No Registered Child"
+    if not students:
+        st.info("No registered students found in the academy roster.")
+        return
 
+    # Child dropdown selector
+    child_names = [s["name"] for s in students]
+    selected_name = st.selectbox("Select Student Profile:", child_names, index=0, key="parent_child_select")
+    
+    # Retrieve active child details
+    child = next((s for s in students if s["name"] == selected_name), students[0])
+    child_id = child.get("id", "")
+
+    # Header showing selected child
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
         <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />
         <div>
             <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Parent Portal</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing Student Profile: <strong style="color: #38bdf8;">{active_child}</strong></p>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Viewing Student Profile: <strong style="color: #38bdf8;">{child.get('name')}</strong></p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="glass-card">
-        <h3 style="margin-top:0; color:#38bdf8;">Academic & Tuition Status</h3>
-        <p><strong>Student Name:</strong> Aarav Sharma</p>
-        <p><strong>Batch:</strong> Class 9 Science</p>
-        <p><strong>Attendance Percentage:</strong> 94%</p>
-        <p><strong>Monthly Fee Status:</strong> <span style="color:#4ade80; font-weight:700;">Paid (September 2026)</span></p>
-        <p><strong>Next Assessment:</strong> Physics Mid-Term (Next Week)</p>
+    # Live Payment Status calculation
+    payment_map = st.session_state.get("payment_status", {})
+    fee_status = payment_map.get(child_id, "Unpaid")
+    status_badge_color = "#4ade80" if fee_status == "Paid" else "#f87171"
+
+    # Live Attendance calculation from logs
+    attendance_logs = st.session_state.get("attendance_logs", {})
+    total_days = 0
+    present_days = 0
+    for day_record in attendance_logs.values():
+        total_days += 1
+        if child["name"] in day_record.get("present", []):
+            present_days += 1
+
+    attendance_pct = int((present_days / total_days) * 100) if total_days > 0 else 100
+
+    # High-contrast dynamic card
+    st.markdown(f"""
+    <div style="background-color: #1e293b; border: 1.5px solid #334155; border-radius: 14px; padding: 18px; margin-top: 10px;">
+        <h3 style="color: #ffffff; margin-top: 0; font-size: 18px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
+            Academic & Tuition Status
+        </h3>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Student Name: <strong style="color: #ffffff;">{child.get('name')}</strong>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Batch / Grade: <strong style="color: #38bdf8;">{child.get('grade')}</strong> 
+            <span style="color: #64748b;">({child.get('subject', 'General')})</span>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Attendance Record: <strong style="color: #38bdf8;">{attendance_pct}%</strong> 
+            <span style="color: #94a3b8; font-size: 13px;">({present_days}/{total_days} sessions attended)</span>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Monthly Tuition Fee: <strong style="color: #ffffff;">₹{child.get('fee', 2500):,}</strong>
+        </p>
+        <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
+            Fee Status: <strong style="color: {status_badge_color};">{fee_status}</strong>
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
-# ----------------------------------------------------
+    # Clean Exit / Logout for Non-Admin Parents
+    st.write("---")
+    if st.button("🚪 Log Out", use_container_width=True, key="parent_logout_btn"):
+        st.session_state.clear()
+        st.rerun()
 # ----------------------------------------------------
 # 6. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
