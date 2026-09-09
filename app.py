@@ -1026,7 +1026,7 @@ def show_parent_dashboard():
         st.session_state.clear()
         st.rerun()
 # ----------------------------------------------------
-# ----------------------------------------------------
+    # ----------------------------------------------------
 # 6. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
 if not st.session_state.get("logged_in", False):
@@ -1074,32 +1074,12 @@ else:
             st.session_state.clear()
             st.rerun()
 
-        # ABSOLUTE APP EXECUTION & ROUTER GUARD
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.logged_role = "Teacher"
-    st.session_state.active_view = "Teacher"
-
-if not st.session_state.logged_in:
-    show_login_page()
-else:
-    # Ensure safe defaults if keys are missing
-    logged_role = st.session_state.get("logged_role", "Teacher")
-    active_view = st.session_state.get("active_view", logged_role)
-
-    # Admin return header shortcut in the sidebar for persistent access
-    if logged_role == "Admin" and active_view != "Admin":
-        if st.sidebar.button("⬅️ Return to Admin Console", key="admin_sidebar_return_btn", use_container_width=True):
-            st.session_state.active_view = "Admin"
-            st.session_state.user_role = "Admin"
-            st.rerun()
-
-    # Single-Dashboard Dispatcher with strict fallback
+    # Single-Dashboard Dispatcher
     dashboard_routes = {
         "Admin": show_admin_dashboard,
         "Teacher": show_teacher_dashboard,
         "Parent": show_parent_dashboard
     }
 
-    render_dashboard = dashboard_routes.get(active_view, show_teacher_dashboard)
+    render_dashboard = dashboard_routes.get(active_view, show_admin_dashboard)
     render_dashboard()
