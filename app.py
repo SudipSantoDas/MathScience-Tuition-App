@@ -1125,21 +1125,31 @@ def show_admin_dashboard():
     else:
         st.info("No financial transactions logged yet.")
         
-
-    # Determine view to render
-role = st.session_state.get("logged_in_role", "Admin")
-current_view = st.session_state.get("active_view", "Admin") if role == "Admin" else role
-
-# Admin return header if inspecting another desk
-if role == "Admin" and current_view != "Admin":
-    if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
-        st.session_state.active_view = "Admin"
-        st.rerun()
-
-# Strict single-dashboard rendering
-if current_view == "Teacher":
-    show_teacher_dashboard()
-elif current_view == "Parent":
-    show_parent_dashboard()
+    # ====================================================
+# MASTER APP GATEKEEPER & ROUTER
+# ====================================================
+if not st.session_state.get("logged_in", False):
+    show_login()
 else:
-    show_admin_dashboard()
+    # Determine view to render
+    logged_role = st.session_state.get("logged_in_role", "Teacher")
+    active_view = st.session_state.get("active_view", logged_role)
+
+    # If standard user (non-admin), force view to their allowed role
+    if logged_role != "Admin":
+        active_view = logged_role
+
+    # Admin return header if inspecting another desk
+    if logged_role == "Admin" and active_view != "Admin":
+        if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
+            st.session_state.active_view = "Admin"
+            st.session_state.user_role = "Admin"
+            st.rerun()
+
+    # Strict single-dashboard rendering
+    if active_view == "Teacher":
+        show_teacher_dashboard()
+    elif active_view == "Parent":
+        show_parent_dashboard()
+    else:
+        show_admin_dashboard()
