@@ -428,7 +428,7 @@ def show_teacher_dashboard():
             st.info("No students added yet.")
 
         with st.expander("➕ Add New Student to Roster", expanded=False):
-            with st.form("new_student_form", clear_on_submit=True):
+            with st.form("new_student_form_roster", clear_on_submit=True):
                 stu_name = st.text_input("Full Name", placeholder="e.g., Aarav Sharma")
                 default_grade = active_room["title"] if active_room else ""
                 default_subject = active_room["subject"] if active_room else ""
