@@ -360,35 +360,7 @@ def show_teacher_dashboard():
         st.session_state.classrooms = []
 
     with st.expander("➕ Create New Classroom / Batch", expanded=False):
-        if "classrooms" not in st.session_state:
-        st.session_state.classrooms = []
-
-    with st.expander("➕ Create New Classroom / Batch", expanded=False):
         with st.form("create_room_form_unique", clear_on_submit=True):
-            r_col1, r_col2 = st.columns(2)
-            with r_col1:
-                r_title = st.text_input("Grade / Class Level", placeholder="e.g., Class 10")
-            with r_col2:
-                r_subj = st.text_input("Subject", placeholder="e.g., Science")
-
-            r_col3, r_col4 = st.columns(2)
-            with r_col3:
-                r_batch = st.text_input("Batch / Section", placeholder="e.g., 4:30 pm")
-            with r_col4:
-                r_fee = st.number_input("Standard Monthly Fee (₹)", min_value=0, value=2500, step=100)
-
-            if st.form_submit_button("Save Classroom", use_container_width=True):
-                if r_title.strip() and r_subj.strip():
-                    st.session_state.classrooms.append({
-                        "title": r_title.strip(),
-                        "subject": r_subj.strip(),
-                        "section": r_batch.strip() or "Regular",
-                        "fee": r_fee
-                    })
-                    st.success("Classroom created successfully!")
-                    st.rerun()
-                else:
-                    st.warning("Please provide both Class Level and Subject.")
             r_col1, r_col2 = st.columns(2)
             with r_col1:
                 r_title = st.text_input("Grade / Class Level", placeholder="e.g., Class 10")
