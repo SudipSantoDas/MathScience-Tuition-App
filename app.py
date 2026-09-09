@@ -1126,8 +1126,12 @@ else:
     else:
         st.info("No financial transactions logged yet.")
 
-    # Determine view to render
-    current_view = st.session_state.get("active_view", "Admin") if role == "Admin" else role
+   # Determine view to render
+role = st.session_state.get("logged_in_role", "Admin")
+current_view = st.session_state.get("active_view", "Admin") if role == "Admin" else role
+
+# Admin return header if inspecting another desk
+if role == "Admin" and current_view != "Admin":
 
     # Admin return header if inspecting another desk
     if role == "Admin" and current_view != "Admin":
