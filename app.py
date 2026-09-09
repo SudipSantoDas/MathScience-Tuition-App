@@ -1129,5 +1129,5 @@ else:
     }
 
     current_active_view = st.session_state.get("active_view", "Admin")
-    render_func = dashboard_routes.get(current_active_view, show_admin_dashboard)
-    render_func()
+    active_dashboard_func = dashboard_routes.get(current_active_view, show_admin_dashboard)
+    active_dashboard_func()
