@@ -1075,6 +1075,11 @@ else:
             st.rerun()
 
     # Admin return header shortcut if viewing another console
+    # Ensure role and view states are safely pulled
+    logged_role = st.session_state.get("logged_in_role", "Teacher")
+    active_view = st.session_state.get("active_view", st.session_state.get("user_role", "Teacher"))
+
+    # Admin return header shortcut if viewing another console
     if logged_role == "Admin" and active_view != "Admin":
         if st.button("⬅️ Return to Admin Master Console", key="admin_top_return_btn", use_container_width=True):
             st.session_state.active_view = "Admin"
