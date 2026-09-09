@@ -1030,111 +1030,46 @@ def show_parent_dashboard():
 # 6. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
 if not st.session_state.get("logged_in", False):
-    show_login_page()
-else:
-    role = st.session_state.get("user_role")
 
-    # Set default view if not already selected
-    if "active_view" not in st.session_state or st.session_state.active_view is None:
-        st.session_state.active_view = role
-
-    # Dedicated Left Sidebar
-    with st.sidebar:
-        st.markdown(f"""
-        <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
-            <div style="display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%); color: #ffffff; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 8px;">
-                {role} Mode
-            </div>
-            <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{st.session_state.get('user_email', '')}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Admin-exclusive sidebar switcher
-        if role == "Admin":
-            st.markdown("### 🛠️ Admin Navigation")
-            pages = ["Admin", "Teacher", "Parent"]
-            
-            # Keep sidebar selectbox synced with button clicks
-            if st.session_state.get("active_view") not in pages:
-                st.session_state.active_view = "Admin"
-
-            def sync_sidebar_desk():
-                st.session_state.active_view = st.session_state.admin_sidebar_nav
-
-            current_idx = pages.index(st.session_state.active_view)
-            st.selectbox(
-                "Go to Desk:",
-                pages,
-                index=current_idx,
-                key="admin_sidebar_nav",
-                on_change=sync_sidebar_desk
-            )
-
-        if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
-def show_admin_dashboard():
-    # Header Banner
-    logo_html = ""
-    if "logo_b64_str" in globals() and globals().get("logo_b64_str"):
-        logo_html = f'<img src="{globals()["logo_b64_str"]}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />'
-
-    st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-        {logo_html}
-        <div>
-            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Admin Master Console</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Executive Management • Full Academy Controls</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Console Switching
-    col_nav1, col_nav2 = st.columns(2)
-    with col_nav1:
-        if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="adm_to_teach"):
-            st.session_state.active_view = "Teacher"
-            st.session_state.user_role = "Teacher"
-            st.rerun()
-    with col_nav2:
-        if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="adm_to_parent"):
-            st.session_state.active_view = "Parent"
-            st.session_state.user_role = "Parent"
-            st.rerun()
-
-    st.write("---")
-
-    # Metrics
-    students = st.session_state.get("students_db", [])
-    enrolled_count = len(students)
-    total_rev = sum(s.get("fee", 0) for s in students)
-
-    st.caption("Enrolled Students")
-    st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>{enrolled_count}</h2>", unsafe_allow_html=True)
-
-    st.caption("Total Expected Revenue")
-    st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>₹{total_rev:,}</h2>", unsafe_allow_html=True)
-
-    st.caption("System Health")
-    st.markdown("<h3 style='color: #4ade80; margin-top: -8px;'>Operational</h3>", unsafe_allow_html=True)
-
-    st.write("---")
-
-    # Data Tables
-    st.subheader("Master Student Records")
-    if students:
-        st.dataframe(students, use_container_width=True, hide_index=True)
-    else:
-        st.info("No student records available.")
-
-    st.write("---")
-    st.subheader("Master Financial Ledger")
-    if students:
-        st.dataframe(students, use_container_width=True, hide_index=True)
-    else:
-        st.info("No financial transactions logged yet.")
+# Admin-exclusive sidebar switcher
+    if role == "Admin":
+        st.markdown("### 🛠️ Admin Navigation")
+        pages = ["Admin", "Teacher", "Parent"]
         
-    # ====================================================
+        # Keep sidebar selectbox synced with button clicks
+        if st.session_state.get("active_view") not in pages:
+            st.session_state.active_view = "Admin"
+
+        def sync_sidebar_desk():
+            st.session_state.active_view = st.session_state.admin_sidebar_nav
+
+        current_idx = pages.index(st.session_state.active_view)
+        st.selectbox(
+            "Go to Desk:",
+            pages,
+            index=current_idx,
+            key="admin_sidebar_nav",
+            on_change=sync_sidebar_desk
+        )
+
+    if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+
+# ----------------------------------------------------
+# MAIN VIEW RENDER ROUTER
+# ----------------------------------------------------
+active_page = st.session_state.get("active_view", role)
+
+if active_page == "Admin":
+    show_admin_dashboard()
+elif active_page == "Teacher":
+    show_teacher_dashboard()
+elif active_page == "Parent":
+    show_parent_dashboard()
+else:
+    show_admin_dashboard()
+    
 # MASTER APP GATEKEEPER & ROUTER
 # ====================================================
 if not st.session_state.get("logged_in", False):
