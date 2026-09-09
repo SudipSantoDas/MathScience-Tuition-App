@@ -344,6 +344,254 @@ def show_teacher_dashboard():
         </div>
     </div>
     """, unsafe_allow_html=True)
+    # ----------------------------------------------------
+    # 1. DYNAMIC CLASSROOM CREATOR & WORKSPACE SELECTOR
+    # ----------------------------------------------------
+    if "classrooms" not in st.session_state:
+        st.session_state.classrooms = []
+
+    with st.expander("➕ Create New Classroom / Batch", expanded=False):
+        with st.form("create_room_form", clear_on_submit=True):
+            r_col1, r_col2 = st.columns(2)
+            with r_col1:
+                r_title = st.text_input("Grade / Class Level", placeholder="e.g., Class 10")
+            with r_col2:
+                r_subj = st.text_input("Subject", placeholder="e.g., Science")
+
+            r_col3, r_col4 = st.columns(2)
+            with r_col3:
+                r_batch = st.text_input("Batch / Section", placeholder="e.g., 4:30 pm")
+            with r_col4:
+                r_fee = st.number_input("Standard Monthly Fee (₹)", min_value=0, value=2500, step=100)
+
+            if st.form_submit_button("Save Classroom", use_container_width=True):
+                if r_title.strip() and r_subj.strip():
+                    st.session_state.classrooms.append({
+                        "title": r_title.strip(),
+                        "subject": r_subj.strip(),
+                        "section": r_batch.strip() or "Regular",
+                        "fee": r_fee
+                    })
+                    st.success("Classroom created successfully!")
+                    st.rerun()
+                else:
+                    st.warning("Please provide both Class Level and Subject.")
+
+    # High-contrast active class display card
+    active_room = None
+    if st.session_state.classrooms:
+        room_labels = [f"{r['title']} — {r['subject']} ({r['section']})" for r in st.session_state.classrooms]
+        selected_label = st.selectbox("Select Active Classroom to Manage:", room_labels, key="active_room_picker")
+        active_room = st.session_state.classrooms[room_labels.index(selected_label)]
+
+        st.markdown(f"""
+        <div style="background-color: #1e293b; border: 1.5px solid #38bdf8; border-radius: 12px; padding: 12px 18px; margin: 10px 0 20px 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <span style="color: #38bdf8; font-weight: 700; font-size: 14px; text-transform: uppercase;">Active Class:</span>
+                    <span style="color: #ffffff; font-weight: 700; font-size: 16px; margin-left: 6px;">{active_room['title']}</span>
+                </div>
+                <div style="color: #cbd5e1; font-size: 14px;">
+                    Subject: <strong style="color: #38bdf8;">{active_room['subject']}</strong>
+                    <span style="color: #64748b; margin: 0 6px;">•</span>
+                    Batch: <strong style="color: #f1f5f9;">{active_room['section']}</strong>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ----------------------------------------------------
+    # 2. MASTER TABS
+    # ----------------------------------------------------
+    tab_students, tab_attendance, tab_financial, tab_notices = st.tabs([
+        "👥 Student Management",
+        "📅 Attendance Desk",
+        "💰 Financial Desk",
+        "📢 Notice Board"
+    ])
+
+    # ---------------- TAB 1: STUDENTS ----------------
+    with tab_students:
+        st.subheader("Academy Student Roster")
+        if "students_db" in st.session_state and st.session_state.students_db:
+            st.dataframe(st.session_state.students_db, use_container_width=True, hide_index=True)
+        else:
+            st.info("No students added yet.")
+
+        with st.expander("➕ Add New Student to Roster", expanded=False):
+            with st.form("new_student_form", clear_on_submit=True):
+                stu_name = st.text_input("Full Name", placeholder="e.g., Aarav Sharma")
+                default_grade = active_room["title"] if active_room else ""
+                default_subject = active_room["subject"] if active_room else ""
+                default_fee = int(active_room["fee"]) if active_room else 2500
+
+                stu_grade = st.text_input("Grade / Batch / Room", value=default_grade)
+                stu_subject = st.text_input("Assigned Subject", value=default_subject)
+                stu_fee = st.number_input("Monthly Fee Amount (₹)", min_value=0, value=default_fee, step=100)
+
+                if st.form_submit_button("Save Student to Records", use_container_width=True):
+                    if stu_name.strip():
+                        new_id = f"STU{101 + len(st.session_state.get('students_db', []))}"
+                        if "students_db" not in st.session_state:
+                            st.session_state.students_db = []
+                        st.session_state.students_db.append({
+                            "id": new_id,
+                            "name": stu_name.strip(),
+                            "grade": stu_grade.strip() or "General",
+                            "subject": stu_subject.strip() or "General",
+                            "fee": stu_fee
+                        })
+                        st.success(f"Added {stu_name.strip()}!")
+                        st.rerun()
+
+        with st.expander("🗑️ Delete Student from Roster", expanded=False):
+            if st.session_state.get("students_db"):
+                student_options = [f"{s['name']} ({s['id']})" for s in st.session_state.students_db]
+                del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select")
+                if st.button("Confirm Delete", type="primary", use_container_width=True):
+                    chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
+                    st.session_state.students_db = [s for s in st.session_state.students_db if s["id"] != chosen_id]
+                    st.success("Student removed.")
+                    st.rerun()
+
+    # ---------------- TAB 2: ATTENDANCE ----------------
+    with tab_attendance:
+        st.subheader("Daily Attendance Register")
+        today_str = datetime.date.today().strftime("%Y-%m-%d")
+        st.caption(f"Logging Record for: **{today_str}**")
+
+        registered_rooms = sorted(list(set(
+            s.get("grade", "").strip() for s in st.session_state.get("students_db", []) if s.get("grade")
+        )))
+
+        if not registered_rooms:
+            st.info("Add students first to log attendance.")
+            active_roster = []
+        else:
+            selected_class = st.selectbox("Select Class / Room to Mark", options=["All Classes"] + registered_rooms, index=0)
+            if selected_class == "All Classes":
+                active_roster = st.session_state.students_db
+            else:
+                active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            mark_all = st.button("✅ Mark All Present", use_container_width=True)
+        with col_b:
+            clear_all = st.button("⭕ Clear All", use_container_width=True)
+
+        att_status = {}
+        for s in active_roster:
+            s_id = s["id"]
+            default_val = False if clear_all else True
+            att_status[s_id] = st.checkbox(
+                f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
+                value=default_val,
+                key=f"att_check_{s_id}_{today_str}"
+            )
+
+        if st.button("Submit Attendance Register", use_container_width=True):
+            if "attendance_logs" not in st.session_state:
+                st.session_state.attendance_logs = {}
+            p_list = [s["name"] for s in active_roster if att_status.get(s["id"])]
+            a_list = [s["name"] for s in active_roster if not att_status.get(s["id"])]
+            st.session_state.attendance_logs[today_str] = {"present": p_list, "absent": a_list}
+            st.success(f"Attendance recorded! Present: {len(p_list)} | Absent: {len(a_list)}")
+
+    # ---------------- TAB 3: FINANCE ----------------
+    with tab_financial:
+        st.subheader("Tuition Fee Management")
+        if "payment_status" not in st.session_state:
+            st.session_state.payment_status = {}
+
+        if st.session_state.get("students_db"):
+            total_expected = sum(s.get("fee", 0) for s in st.session_state.students_db)
+            total_collected = sum(
+                s.get("fee", 0) for s in st.session_state.students_db
+                if st.session_state.payment_status.get(s["id"], "Unpaid") == "Paid"
+            )
+            total_due = total_expected - total_collected
+
+            c_f1, c_f2 = st.columns(2)
+            with c_f1:
+                st.metric("Total Collected", f"₹{total_collected:,}")
+            with c_f2:
+                st.metric("Pending / Due", f"₹{total_due:,}")
+
+            st.write("---")
+            st.markdown("### Update Student Payment Status")
+            for student in st.session_state.students_db:
+                s_id = student["id"]
+                current_status = st.session_state.payment_status.get(s_id, "Unpaid")
+                st.markdown(f"**{student['name']}** ({student['grade']}) • Fee: ₹{student['fee']:,}")
+                new_status = st.selectbox(
+                    "Status",
+                    ["Unpaid", "Paid"],
+                    index=0 if current_status == "Unpaid" else 1,
+                    key=f"status_select_{s_id}"
+                )
+                st.session_state.payment_status[s_id] = new_status
+
+            unpaid = [s for s in st.session_state.students_db if st.session_state.payment_status.get(s["id"], "Unpaid") == "Unpaid"]
+            if unpaid:
+                st.markdown(f"""
+                <div style="background-color: rgba(239, 68, 68, 0.2); border: 1.5px solid #ef4444; border-radius: 10px; padding: 12px 16px; margin-top: 15px;">
+                    <strong style="color: #fca5a5; font-size: 15px;">⚠️ Pending Fee Reminders:</strong>
+                    <p style="color: #ffffff; font-size: 14px; margin: 6px 0 0 0;">
+                        {len(unpaid)} student(s) have unpaid balances totaling <span style="color: #fca5a5; font-weight: 700;">₹{total_due:,}</span>.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.success("🎉 All students have paid their dues!")
+        else:
+            st.info("No enrolled students found.")
+
+    # ---------------- TAB 4: NOTICE BOARD ----------------
+    with tab_notices:
+        st.subheader("📢 Academy Notice Board")
+        if "academy_notices" not in st.session_state:
+            st.session_state.academy_notices = []
+
+        with st.expander("➕ Broadcast New Announcement", expanded=False):
+            with st.form("teacher_broadcast_form", clear_on_submit=True):
+                n_title = st.text_input("Announcement Title", placeholder="e.g., Test Schedule / Holiday")
+                n_body = st.text_area("Message / Details", placeholder="Enter announcement body...")
+                n_priority = st.selectbox("Priority Level", ["Normal", "Urgent", "Exam/Test"])
+                
+                if st.form_submit_button("Publish Announcement", use_container_width=True):
+                    if n_title.strip() and n_body.strip():
+                        st.session_state.academy_notices.insert(0, {
+                            "title": n_title.strip(),
+                            "body": n_body.strip(),
+                            "priority": n_priority,
+                            "date": datetime.date.today().strftime("%d %b %Y")
+                        })
+                        st.success("Notice published!")
+                        st.rerun()
+                    else:
+                        st.warning("Please provide a title and details.")
+
+        if st.session_state.academy_notices:
+            for n in st.session_state.academy_notices:
+                color = "#ef4444" if n["priority"] == "Urgent" else ("#f59e0b" if n["priority"] == "Exam/Test" else "#38bdf8")
+                st.markdown(f"""
+                <div style="background-color: #1e293b; border-left: 4px solid {color}; border-radius: 8px; padding: 12px 16px; margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong style="color: #ffffff; font-size: 15px;">{n['title']}</strong>
+                        <span style="color: #94a3b8; font-size: 12px;">{n['date']}</span>
+                    </div>
+                    <p style="color: #cbd5e1; font-size: 13px; margin: 6px 0 0 0; line-height: 1.4;">{n['body']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No notices broadcasted yet.")
+
+    # Global Logout Button
+    st.write("---")
+    if st.button("🚪 Log Out", use_container_width=True, key="teacher_logout_btn"):
+        st.session_state.clear()
+        st.rerun()
 
     # ----------------------------------------------------
     # 1. DYNAMIC CLASSROOM CREATOR & WORKSPACE SELECTOR
@@ -600,18 +848,47 @@ def show_teacher_dashboard():
 
     # ---------------- TAB 4: NOTICE BOARD ----------------
     with tab_notices:
-        st.subheader("Academy Notices & Announcements")
-        st.info("Broadcast channel active for students and parents.")
-def show_admin_dashboard():
-    st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
-        <img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8;" />
-        <div>
-            <h2 style="margin: 0; font-size: 22px;">Admin Master Console</h2>
-            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Executive Management • Full Academy Controls</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        st.subheader("📢 Academy Notice Board")
+
+        if "academy_notices" not in st.session_state:
+            st.session_state.academy_notices = []
+
+        # Form to post new notice (Teacher/Admin)
+        with st.expander("➕ Broadcast New Announcement", expanded=False):
+            with st.form("new_notice_form", clear_on_submit=True):
+                n_title = st.text_input("Announcement Title", placeholder="e.g., Weekly Test Schedule / Holiday")
+                n_body = st.text_area("Message / Details", placeholder="Write the announcement details here...")
+                n_priority = st.selectbox("Priority Level", ["Normal", "Urgent", "Exam/Test"])
+                
+                if st.form_submit_button("Publish Announcement", use_container_width=True):
+                    if n_title.strip() and n_body.strip():
+                        import datetime
+                        st.session_state.academy_notices.insert(0, {
+                            "title": n_title.strip(),
+                            "body": n_body.strip(),
+                            "priority": n_priority,
+                            "date": datetime.date.today().strftime("%d %b %Y")
+                        })
+                        st.success("Notice published successfully!")
+                        st.rerun()
+                    else:
+                        st.warning("Please provide both a title and details.")
+
+        # Display Published Notices
+        if st.session_state.academy_notices:
+            for idx, notice in enumerate(st.session_state.academy_notices):
+                border_color = "#ef4444" if notice["priority"] == "Urgent" else ("#f59e0b" if notice["priority"] == "Exam/Test" else "#38bdf8")
+                st.markdown(f"""
+                <div style="background-color: #1e293b; border-left: 4px solid {border_color}; border-radius: 8px; padding: 12px 16px; margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong style="color: #ffffff; font-size: 16px;">{notice['title']}</strong>
+                        <span style="color: #94a3b8; font-size: 12px;">{notice['date']}</span>
+                    </div>
+                    <p style="color: #cbd5e1; font-size: 14px; margin: 8px 0 0 0; line-height: 1.4;">{notice['body']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No notices posted yet. Use the form above to broadcast an update.")
 
     # Quick Navigation Switchers
     col_nav1, col_nav2 = st.columns(2)
