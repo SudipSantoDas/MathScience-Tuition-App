@@ -1026,7 +1026,53 @@ def show_parent_dashboard():
         st.session_state.clear()
         st.rerun()
 # ----------------------------------------------------
-    # ----------------------------------------------------
+
+def show_admin_dashboard():
+    if "students_db" not in st.session_state:
+        st.session_state.students_db = []
+    if "payment_status" not in st.session_state:
+        st.session_state.payment_status = {}
+
+    logo_html = f'<img src="{logo_b64_str}" style="width: 48px; height: 48px; border-radius: 12px; border: 1.5px solid #38bdf8; object-fit: cover;" />' if logo_b64_str else ''
+
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+        {logo_html}
+        <div>
+            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Admin Master Console</h2>
+            <p style="margin: 0; color: #94a3b8; font-size: 13px;">Executive Management • Full Academy Controls</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="admin_to_teacher_btn"):
+            st.session_state.active_view = "Teacher"
+            st.rerun()
+    with col_nav2:
+        if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="admin_to_parent_btn"):
+            st.session_state.active_view = "Parent"
+            st.rerun()
+
+    st.write("---")
+
+    students = st.session_state.students_db
+    enrolled_count = len(students)
+    total_rev = sum(s.get("fee", 0) for s in students)
+
+    st.caption("Enrolled Students")
+    st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>{enrolled_count}</h2>", unsafe_allow_html=True)
+
+    st.caption("Total Revenue")
+    st.markdown(f"<h2 style='color: #ffffff; margin-top: -8px;'>₹{total_rev:,}</h2>", unsafe_allow_html=True)
+
+    st.write("---")
+    st.subheader("Master Student Records")
+    if students:
+        st.dataframe(students, use_container_width=True, hide_index=True)
+    else:
+        st.info("No student records available.")
 # 6. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
 if not st.session_state.get("logged_in", False):
