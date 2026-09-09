@@ -1073,7 +1073,7 @@ def show_admin_dashboard():
         st.dataframe(students, use_container_width=True, hide_index=True)
     else:
         st.info("No student records available.")
-# 6. CORE APP ROUTER & SIDEBAR CONTROLLER
+    # 6. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
 if not st.session_state.get("logged_in", False):
     show_login()
@@ -1120,12 +1120,12 @@ else:
             st.session_state.clear()
             st.rerun()
 
-    # Single-Dashboard Dispatcher
+    # Single-Dashboard Dispatcher (using render_func to avoid collision)
     dashboard_routes = {
         "Admin": show_admin_dashboard,
         "Teacher": show_teacher_dashboard,
         "Parent": show_parent_dashboard
     }
 
-    render_dashboard = dashboard_routes.get(active_view, show_admin_dashboard)
-    render_dashboard()
+    render_func = dashboard_routes.get(active_view, show_admin_dashboard)
+    render_func()
