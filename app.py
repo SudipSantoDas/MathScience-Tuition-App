@@ -329,12 +329,10 @@ def show_teacher_dashboard():
         with nav_col1:
             if st.button("⬅ Return to Admin Console", use_container_width=True, key="btn_to_admin"):
                 st.session_state.user_role = "Admin"
-                st.session_state.active_view = "Admin"
                 st.rerun()
         with nav_col2:
             if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="btn_to_parent"):
                 st.session_state.user_role = "Parent"
-                st.session_state.active_view = "Parent"
                 st.rerun()
         st.write("---")
 
@@ -381,6 +379,7 @@ def show_teacher_dashboard():
                 else:
                     st.warning("Please provide both Class Level and Subject.")
 
+    active_room = None
     if st.session_state.classrooms:
         room_labels = [f"{r['title']} — {r['subject']} ({r['section']})" for r in st.session_state.classrooms]
         selected_label = st.selectbox("Select Active Classroom to Manage:", options=room_labels, key="unique_classroom_selector_main")
@@ -401,8 +400,6 @@ def show_teacher_dashboard():
             </div>
         </div>
         """, unsafe_allow_html=True)
-    else:
-        active_room = None
 
     tab_students, tab_attendance, tab_financial, tab_notices = st.tabs([
         "👥 Student Management",
@@ -447,8 +444,8 @@ def show_teacher_dashboard():
         with st.expander("🗑️ Delete Student from Roster", expanded=False):
             if st.session_state.get("students_db"):
                 student_options = [f"{s['name']} ({s['id']})" for s in st.session_state.students_db]
-                del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select_unique")
-                if st.button("Confirm Delete", type="primary", use_container_width=True, key="confirm_del_btn"):
+                del_choice = st.selectbox("Select Student to Remove", student_options, key=f"del_stu_select_{id(student_options)}")
+                if st.button("Confirm Delete", type="primary", use_container_width=True):
                     chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
                     st.session_state.students_db = [s for s in st.session_state.students_db if s["id"] != chosen_id]
                     st.success("Student removed.")
@@ -456,6 +453,7 @@ def show_teacher_dashboard():
 
     with tab_attendance:
         st.subheader("Daily Attendance Register")
+        
         today_str = datetime.date.today().strftime("%Y-%m-%d")
         st.caption(f"Logging Record for: **{today_str}**")
 
@@ -467,17 +465,17 @@ def show_teacher_dashboard():
             st.info("Add students first to log attendance.")
             active_roster = []
         else:
-            selected_class = st.selectbox("Select Class / Room to Mark", options=["All Classes"] + registered_rooms, index=0, key="attendance_class_select")
+            selected_class = st.selectbox("Select Class / Room to Mark", options=["All Classes"] + registered_rooms, index=0)
             if selected_class == "All Classes":
                 active_roster = st.session_state.students_db
             else:
-                active_roster = [s for s in st.session_state.students_db if s.get("grade"] == selected_class]
+                active_roster = [s for s in st.session_state.students_db if s.get("grade") == selected_class]
 
         col_a, col_b = st.columns(2)
         with col_a:
-            mark_all = st.button("✅ Mark All Present", use_container_width=True, key="mark_all_btn")
+            mark_all = st.button("✅ Mark All Present", use_container_width=True)
         with col_b:
-            clear_all = st.button("⭕ Clear All", use_container_width=True, key="clear_all_btn")
+            clear_all = st.button("⭕ Clear All", use_container_width=True)
 
         att_status = {}
         for s in active_roster:
@@ -489,7 +487,7 @@ def show_teacher_dashboard():
                 key=f"att_check_{s_id}_{today_str}"
             )
 
-        if st.button("Submit Attendance Register", use_container_width=True, key="submit_att_btn"):
+        if st.button("Submit Attendance Register", use_container_width=True):
             if "attendance_logs" not in st.session_state:
                 st.session_state.attendance_logs = {}
             p_list = [s["name"] for s in active_roster if att_status.get(s["id"])]
@@ -518,23 +516,17 @@ def show_teacher_dashboard():
 
             st.write("---")
             st.markdown("### Update Student Payment Status")
-            with st.form("fee_status_form"):
-                new_statuses = {}
-                for student in st.session_state.students_db:
-                    s_id = student["id"]
-                    current_status = st.session_state.payment_status.get(s_id, "Unpaid")
-                    st.markdown(f"**{student['name']}** ({student['grade']}) • Fee: ₹{student['fee']:,}")
-                    new_statuses[s_id] = st.selectbox(
-                        "Status",
-                        ["Unpaid", "Paid"],
-                        index=0 if current_status == "Unpaid" else 1,
-                        key=f"status_select_{s_id}"
-                    )
-                if st.form_submit_button("💾 Save Payment Statuses", use_container_width=True, type="primary"):
-                    for sid, stat in new_statuses.items():
-                        st.session_state.payment_status[sid] = stat
-                    st.success("Payment records updated!")
-                    st.rerun()
+            for student in st.session_state.students_db:
+                s_id = student["id"]
+                current_status = st.session_state.payment_status.get(s_id, "Unpaid")
+                st.markdown(f"**{student['name']}** ({student['grade']}) • Fee: ₹{student['fee']:,}")
+                new_status = st.selectbox(
+                    "Status",
+                    ["Unpaid", "Paid"],
+                    index=0 if current_status == "Unpaid" else 1,
+                    key=f"status_select_{s_id}"
+                )
+                st.session_state.payment_status[s_id] = new_status
 
             unpaid = [s for s in st.session_state.students_db if st.session_state.payment_status.get(s["id"], "Unpaid") == "Unpaid"]
             if unpaid:
@@ -560,7 +552,7 @@ def show_teacher_dashboard():
             with st.form("teacher_broadcast_form", clear_on_submit=True):
                 n_title = st.text_input("Announcement Title", placeholder="e.g., Test Schedule / Holiday")
                 n_body = st.text_area("Message / Details", placeholder="Enter announcement body...")
-                n_priority = st.selectbox("Priority Level", ["Normal", "Urgent", "Exam/Test"], key="notice_priority_select")
+                n_priority = st.selectbox("Priority Level", ["Normal", "Urgent", "Exam/Test"])
                 
                 if st.form_submit_button("Publish Announcement", use_container_width=True):
                     if n_title.strip() and n_body.strip():
@@ -601,12 +593,10 @@ def show_parent_dashboard():
         with p_nav1:
             if st.button("⬅ Return to Admin Console", use_container_width=True, key="parent_to_admin"):
                 st.session_state.user_role = "Admin"
-                st.session_state.active_view = "Admin"
                 st.rerun()
         with p_nav2:
             if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="parent_to_teacher"):
                 st.session_state.user_role = "Teacher"
-                st.session_state.active_view = "Teacher"
                 st.rerun()
         st.write("---")
 
@@ -697,12 +687,10 @@ def show_admin_dashboard():
     with col_nav1:
         if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="admin_to_teacher_btn"):
             st.session_state.active_view = "Teacher"
-            st.session_state.user_role = "Teacher"
             st.rerun()
     with col_nav2:
         if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="admin_to_parent_btn"):
             st.session_state.active_view = "Parent"
-            st.session_state.user_role = "Parent"
             st.rerun()
 
     st.write("---")
@@ -747,7 +735,9 @@ else:
         """, unsafe_allow_html=True)
 
         if logged_role == "Admin":
+            st.markdown("### 🛠️ Admin Navigation")
             pages = ["Admin", "Teacher", "Parent"]
+            
             if st.session_state.get("active_view") not in pages:
                 st.session_state.active_view = "Admin"
 
