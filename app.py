@@ -466,6 +466,8 @@ def show_teacher_dashboard():
     # ---------------- TAB 2: ATTENDANCE ----------------
     with tab_attendance:
         st.subheader("Daily Attendance Register")
+        
+        import datetime
         today_str = datetime.date.today().strftime("%Y-%m-%d")
         st.caption(f"Logging Record for: **{today_str}**")
 
@@ -506,7 +508,6 @@ def show_teacher_dashboard():
             a_list = [s["name"] for s in active_roster if not att_status.get(s["id"])]
             st.session_state.attendance_logs[today_str] = {"present": p_list, "absent": a_list}
             st.success(f"Attendance recorded! Present: {len(p_list)} | Absent: {len(a_list)}")
-
     # ---------------- TAB 3: FINANCE ----------------
     with tab_financial:
         st.subheader("Tuition Fee Management")
