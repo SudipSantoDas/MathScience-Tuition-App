@@ -199,8 +199,12 @@ def list_students(conn, parent_email: str | None = None):
     return [dict(r) for r in rows]
 
 def add_student(conn, name, grade, subject, fee, parent_email=None):
-    count = conn.execute("SELECT COUNT(*) FROM students").fetchone()[0]
-    new_id = f"STU{101 + count}"
+    # Base the next ID on the highest STUxxx number ever used, not the current
+    # row count — using COUNT(*) breaks after a delete, since a freed-up count
+    # can regenerate an ID that's still taken by another row (IntegrityError).
+    row = conn.execute("SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%'").fetchone()
+    highest = row[0] if row and row[0] is not None else 100
+    new_id = f"STU{highest + 1}"
     conn.execute(
         "INSERT INTO students(id, name, grade, subject, fee, parent_email) VALUES (?,?,?,?,?,?)",
         (new_id, name, grade, subject, fee, parent_email or None),
