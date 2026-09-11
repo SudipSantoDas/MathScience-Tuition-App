@@ -49,6 +49,13 @@ def get_connection():
     init_db(conn)
     return conn
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: str):
+    """Adds a column to an existing table if it isn't there yet (simple migration helper)."""
+    existing_cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in existing_cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+        conn.commit()
+
 def init_db(conn: sqlite3.Connection):
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS users (
@@ -85,6 +92,7 @@ def init_db(conn: sqlite3.Connection):
     CREATE TABLE IF NOT EXISTS financial_records (
         tx_id TEXT PRIMARY KEY,
         student TEXT,
+        student_id TEXT,
         date TEXT,
         amount INTEGER,
         type TEXT,
@@ -99,6 +107,9 @@ def init_db(conn: sqlite3.Connection):
     );
     """)
     conn.commit()
+
+    # Migration for databases created before student_id existed on financial_records.
+    _ensure_column(conn, "financial_records", "student_id", "TEXT")
 
     # Seed one built-in Admin and one built-in Teacher account if none exist yet.
     if conn.execute("SELECT COUNT(*) FROM users WHERE role='Admin'").fetchone()[0] == 0:
@@ -132,10 +143,10 @@ def init_db(conn: sqlite3.Connection):
             ],
         )
         conn.executemany(
-            "INSERT INTO financial_records(tx_id, student, date, amount, type, method) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method) VALUES (?,?,?,?,?,?,?)",
             [
-                ("TXN901", "Aarav Sharma", "2026-09-01", 1500, "Tuition Fee", "UPI / Online"),
-                ("TXN902", "Rohan Das", "2026-09-03", 1500, "Tuition Fee", "Cash"),
+                ("TXN901", "Aarav Sharma", "STU101", "2026-09-01", 1500, "Tuition Fee", "UPI / Online"),
+                ("TXN902", "Rohan Das", "STU102", "2026-09-03", 1500, "Tuition Fee", "Cash"),
             ],
         )
         conn.execute(
@@ -269,18 +280,53 @@ def get_payment_status(conn, student_id: str) -> str:
     row = conn.execute("SELECT status FROM payment_status WHERE student_id=?", (student_id,)).fetchone()
     return row["status"] if row else "Unpaid"
 
+def _next_tx_id(conn) -> str:
+    # Same "highest number used, not row count" logic as student IDs — avoids
+    # regenerating an already-used tx_id after older transactions are ever removed.
+    row = conn.execute("SELECT MAX(CAST(SUBSTR(tx_id, 4) AS INTEGER)) FROM financial_records WHERE tx_id LIKE 'TXN%'").fetchone()
+    highest = row[0] if row and row[0] is not None else 900
+    return f"TXN{highest + 1}"
+
 def set_payment_status(conn, student_id: str, status: str):
+    previous_status = get_payment_status(conn, student_id)
+
     conn.execute(
         """INSERT INTO payment_status(student_id, status) VALUES (?,?)
            ON CONFLICT(student_id) DO UPDATE SET status=excluded.status""",
         (student_id, status),
     )
+
+    # Auto-log a transaction the moment a student flips Unpaid -> Paid, so the
+    # ledger and "Fee Status: Paid" never disagree. Re-saving an already-Paid
+    # status (no change) does NOT create a duplicate entry.
+    if status == "Paid" and previous_status != "Paid":
+        student = get_student(conn, student_id)
+        if student:
+            conn.execute(
+                "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method) VALUES (?,?,?,?,?,?,?)",
+                (
+                    _next_tx_id(conn),
+                    student["name"],
+                    student_id,
+                    datetime.date.today().strftime("%Y-%m-%d"),
+                    student.get("fee", 0),
+                    "Tuition Fee",
+                    "Marked Paid (Fee Desk)",
+                ),
+            )
+
     conn.commit()
 
-def list_financial_records(conn, student_name: str | None = None):
-    if student_name:
+def list_financial_records(conn, student_id: str | None = None, student_name: str | None = None):
+    if student_id or student_name:
+        # Match by student_id when present (new records); fall back to matching
+        # by name for older rows recorded before student_id was tracked.
         rows = conn.execute(
-            "SELECT * FROM financial_records WHERE student=? ORDER BY date DESC", (student_name,)
+            """SELECT * FROM financial_records
+               WHERE (student_id IS NOT NULL AND student_id=?)
+                  OR (student_id IS NULL AND student=?)
+               ORDER BY date DESC""",
+            (student_id, student_name),
         ).fetchall()
     else:
         rows = conn.execute("SELECT * FROM financial_records ORDER BY date DESC").fetchall()
@@ -955,7 +1001,7 @@ def render_child_card(child: dict):
 
     with detail_col2:
         with st.expander(f"💳 Payment History — {child_name}", expanded=False):
-            tx_list = list_financial_records(conn, child_name)
+            tx_list = list_financial_records(conn, student_id=child_id, student_name=child_name)
             if tx_list:
                 st.dataframe(tx_list, use_container_width=True, hide_index=True)
             else:
