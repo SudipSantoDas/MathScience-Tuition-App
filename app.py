@@ -152,20 +152,40 @@ def authenticate(conn, email: str, password: str):
         return row["role"]
     return None
 
-def create_parent_account(conn, email: str, password: str):
+def create_user_account(conn, email: str, password: str, role: str):
     conn.execute(
         "INSERT INTO users(email, password_hash, role) VALUES (?,?,?)",
-        (email, hash_password(password), "Parent"),
+        (email, hash_password(password), role),
     )
     conn.commit()
 
+def list_accounts_by_role(conn, role: str):
+    return [dict(r) for r in conn.execute("SELECT email FROM users WHERE role=? ORDER BY email", (role,)).fetchall()]
+
+def delete_account(conn, email: str, role: str):
+    conn.execute("DELETE FROM users WHERE email=? AND role=?", (email, role))
+    if role == "Parent":
+        conn.execute("UPDATE students SET parent_email=NULL WHERE parent_email=?", (email,))
+    conn.commit()
+
+# Back-compat thin wrappers (kept so any existing call sites still work)
+def create_parent_account(conn, email: str, password: str):
+    create_user_account(conn, email, password, "Parent")
+
 def list_parent_accounts(conn):
-    return [dict(r) for r in conn.execute("SELECT email FROM users WHERE role='Parent' ORDER BY email").fetchall()]
+    return list_accounts_by_role(conn, "Parent")
 
 def delete_parent_account(conn, email: str):
-    conn.execute("DELETE FROM users WHERE email=? AND role='Parent'", (email,))
-    conn.execute("UPDATE students SET parent_email=NULL WHERE parent_email=?", (email,))
-    conn.commit()
+    delete_account(conn, email, "Parent")
+
+def list_teacher_accounts(conn):
+    return list_accounts_by_role(conn, "Teacher")
+
+def create_teacher_account(conn, email: str, password: str):
+    create_user_account(conn, email, password, "Teacher")
+
+def delete_teacher_account(conn, email: str):
+    delete_account(conn, email, "Teacher")
 
 # ---- Students ----
 
@@ -1154,6 +1174,39 @@ def show_admin_dashboard():
                     st.rerun()
     else:
         st.info("No parent accounts yet — create one above.")
+
+    st.write("---")
+    st.subheader("🧑‍🏫 Teacher Accounts")
+    st.caption("Give each real teacher their own login instead of sharing one account.")
+
+    with st.expander("➕ Create Teacher Account", expanded=False):
+        with st.form("create_teacher_form", clear_on_submit=True):
+            t_email = st.text_input("Teacher Email", placeholder="teacher.name@academy.com")
+            t_pass = st.text_input("Temporary Password", type="password", key="new_teacher_pass")
+            if st.form_submit_button("Create Account", use_container_width=True):
+                clean_t_email = t_email.strip().lower()
+                if clean_t_email and t_pass.strip():
+                    try:
+                        create_teacher_account(conn, clean_t_email, t_pass)
+                        st.success(f"Teacher account created for {clean_t_email}.")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("An account with that email already exists.")
+                else:
+                    st.warning("Email and password are required.")
+
+    teacher_accounts = list_teacher_accounts(conn)
+    if teacher_accounts:
+        for tr in teacher_accounts:
+            t_col1, t_col2 = st.columns([4, 1])
+            with t_col1:
+                st.markdown(f"**{tr['email']}**")
+            with t_col2:
+                if st.button("Remove", key=f"del_teacher_{tr['email']}", use_container_width=True):
+                    delete_teacher_account(conn, tr["email"])
+                    st.rerun()
+    else:
+        st.info("No teacher accounts yet — create one above.")
 
     logout_button("admin_logout_btn")
 
