@@ -566,16 +566,6 @@ st.markdown(f"""
         fill: #38bdf8 !important;
         color: #38bdf8 !important;
     }}
-    /* Sidebar stays open by default and can't be collapsed from inside it —
-       but we deliberately do NOT hide the floating "expand" arrow that shows
-       up if the sidebar is ever closed (e.g. from a leftover browser state),
-       so there's always a way back in. */
-    [data-testid="stSidebarCollapseButton"] {{
-        display: none !important;
-    }}
-    section[data-testid="stSidebar"] button[title="Collapse sidebar"] {{
-        display: none !important;
-    }}
     section[data-testid="stSidebar"] {{
         background-color: #0b1329 !important;
         background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
@@ -1568,6 +1558,16 @@ else:
         st.session_state.active_view = logged_role
     elif st.session_state.get("active_view") not in ("Admin", "Teacher", "Parent"):
         st.session_state.active_view = "Admin"
+
+    # ---- Always-visible top-bar Logout button. This does NOT depend on the
+    # sidebar in any way — it renders at the very top of the main page on
+    # every screen, so Logout is reachable even if the sidebar is collapsed,
+    # hidden, or misbehaving for any reason. ----
+    topbar_left, topbar_right = st.columns([5, 1])
+    with topbar_right:
+        if st.button("🚪 Logout", key="topbar_logout_btn", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
 
     with st.sidebar:
         role_label = "Super Admin" if is_super else logged_role
