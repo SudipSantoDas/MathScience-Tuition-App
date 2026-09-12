@@ -362,9 +362,6 @@ def list_students(conn, institute_id: int, parent_email: str | None = None):
     return [dict(r) for r in rows]
 
 def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email=None):
-    # Base the next ID on the highest STUxxx number ever used across the whole
-    # platform, not the current row count — using COUNT(*) breaks after a
-    # delete, since a freed-up count can regenerate an ID that's still taken.
     row = conn.execute("SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%'").fetchone()
     highest = row[0] if row and row[0] is not None else 100
     new_id = f"STU{highest + 1}"
@@ -418,7 +415,6 @@ def add_classroom(conn, institute_id: int, title, subject, section, fee):
 # ---- Attendance ----
 
 def save_attendance(conn, institute_id: int, date_str: str, entries: list[dict]):
-    """entries: [{student_id, status, class_name}, ...]"""
     for e in entries:
         conn.execute(
             """INSERT INTO attendance(date, student_id, status, class_name, institute_id) VALUES (?,?,?,?,?)
@@ -443,8 +439,6 @@ def get_payment_status(conn, institute_id: int, student_id: str) -> str:
     return row["status"] if row else "Unpaid"
 
 def _next_tx_id(conn) -> str:
-    # Same "highest number used, not row count" logic as student IDs — avoids
-    # regenerating an already-used tx_id after older transactions are ever removed.
     row = conn.execute("SELECT MAX(CAST(SUBSTR(tx_id, 4) AS INTEGER)) FROM financial_records WHERE tx_id LIKE 'TXN%'").fetchone()
     highest = row[0] if row and row[0] is not None else 900
     return f"TXN{highest + 1}"
@@ -458,9 +452,6 @@ def set_payment_status(conn, institute_id: int, student_id: str, status: str):
         (student_id, status, institute_id),
     )
 
-    # Auto-log a transaction the moment a student flips Unpaid -> Paid, so the
-    # ledger and "Fee Status: Paid" never disagree. Re-saving an already-Paid
-    # status (no change) does NOT create a duplicate entry.
     if status == "Paid" and previous_status != "Paid":
         student = get_student(conn, institute_id, student_id)
         if student:
@@ -482,8 +473,6 @@ def set_payment_status(conn, institute_id: int, student_id: str, status: str):
 
 def list_financial_records(conn, institute_id: int, student_id: str | None = None, student_name: str | None = None):
     if student_id or student_name:
-        # Match by student_id when present (new records); fall back to matching
-        # by name for older rows recorded before student_id was tracked.
         rows = conn.execute(
             """SELECT * FROM financial_records
                WHERE institute_id=? AND (
@@ -577,27 +566,18 @@ st.markdown(f"""
         fill: #38bdf8 !important;
         color: #38bdf8 !important;
     }}
+    /* Sidebar locked permanently open: hide the collapse arrow inside the
+       sidebar AND the floating "expand" button that appears when collapsed,
+       so there is no control left that can ever hide it. */
     [data-testid="collapsedControl"] {{
-        display: flex !important;
-        visibility: visible !important;
-        position: fixed !important;
-        top: 12px !important;
-        left: 12px !important;
-        z-index: 999999 !important;
+        display: none !important;
     }}
-    [data-testid="collapsedControl"] button {{
-        background: #0284c7 !important;
-        border: 2px solid #38bdf8 !important;
-        border-radius: 50% !important;
-        width: 42px !important;
-        height: 42px !important;
-        box-shadow: 0 0 15px rgba(56, 189, 248, 0.6) !important;
+    [data-testid="stSidebarCollapseButton"] {{
+        display: none !important;
     }}
-    [data-testid="collapsedControl"] svg {{
-        fill: #ffffff !important;
-        stroke: #ffffff !important;
-        width: 22px !important;
-        height: 22px !important;
+    section[data-testid="stSidebar"] button[title="Collapse sidebar"],
+    section[data-testid="stSidebar"] button[kind="header"] {{
+        display: none !important;
     }}
     section[data-testid="stSidebar"] {{
         background-color: #0b1329 !important;
@@ -1240,8 +1220,6 @@ def render_child_card(child: dict, institute_id: int):
                 st.info("No recorded transactions yet for this student.")
 
     with st.expander(f"📢 Notices for {child.get('grade', 'this class')}", expanded=False):
-        # Notice board isn't tagged by class today, so this shows all academy
-        # notices for now — swap in a grade filter once notices carry one.
         notices = list_notices(conn, institute_id)
         if notices:
             for n in notices:
