@@ -566,17 +566,14 @@ st.markdown(f"""
         fill: #38bdf8 !important;
         color: #38bdf8 !important;
     }}
-    /* Sidebar locked permanently open: hide the collapse arrow inside the
-       sidebar AND the floating "expand" button that appears when collapsed,
-       so there is no control left that can ever hide it. */
-    [data-testid="collapsedControl"] {{
-        display: none !important;
-    }}
+    /* Sidebar stays open by default and can't be collapsed from inside it —
+       but we deliberately do NOT hide the floating "expand" arrow that shows
+       up if the sidebar is ever closed (e.g. from a leftover browser state),
+       so there's always a way back in. */
     [data-testid="stSidebarCollapseButton"] {{
         display: none !important;
     }}
-    section[data-testid="stSidebar"] button[title="Collapse sidebar"],
-    section[data-testid="stSidebar"] button[kind="header"] {{
+    section[data-testid="stSidebar"] button[title="Collapse sidebar"] {{
         display: none !important;
     }}
     section[data-testid="stSidebar"] {{
