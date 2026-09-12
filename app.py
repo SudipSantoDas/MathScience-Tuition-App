@@ -18,6 +18,10 @@ st.set_page_config(
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "academy.db")
 
+# Free-tier student cap. Institutes above this need to be flipped to Premium
+# (manually, via the Super Admin console, until online billing is wired up).
+FREE_STUDENT_LIMIT = 15
+
 # ----------------------------------------------------
 # 2. PASSWORD HASHING
 # ----------------------------------------------------
@@ -57,7 +61,16 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: s
         conn.commit()
 
 def init_db(conn: sqlite3.Connection):
+    # ---- Base schema (unchanged shape from the single-academy version) ----
     conn.executescript("""
+    CREATE TABLE IF NOT EXISTS institutes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        owner_email TEXT,
+        plan TEXT DEFAULT 'Free',
+        student_limit INTEGER DEFAULT 15,
+        created_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS users (
         email TEXT PRIMARY KEY,
         password_hash TEXT NOT NULL,
@@ -111,173 +124,307 @@ def init_db(conn: sqlite3.Connection):
     # Migration for databases created before student_id existed on financial_records.
     _ensure_column(conn, "financial_records", "student_id", "TEXT")
 
-    # Seed one built-in Admin and one built-in Teacher account if none exist yet.
-    if conn.execute("SELECT COUNT(*) FROM users WHERE role='Admin'").fetchone()[0] == 0:
-        conn.execute(
-            "INSERT INTO users(email, password_hash, role) VALUES (?,?,?)",
-            ("admin@academy.com", hash_password("admin123"), "Admin"),
-        )
-    if conn.execute("SELECT COUNT(*) FROM users WHERE role='Teacher'").fetchone()[0] == 0:
-        conn.execute(
-            "INSERT INTO users(email, password_hash, role) VALUES (?,?,?)",
-            ("teacher@academy.com", hash_password("teacher123"), "Teacher"),
-        )
-    conn.commit()
+    # ---- Multi-tenancy migration: add institute_id (and super-admin flag)
+    # to every table that used to implicitly belong to "the one academy". ----
+    _ensure_column(conn, "users", "institute_id", "INTEGER")
+    _ensure_column(conn, "users", "is_super_admin", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "students", "institute_id", "INTEGER")
+    _ensure_column(conn, "classrooms", "institute_id", "INTEGER")
+    _ensure_column(conn, "attendance", "institute_id", "INTEGER")
+    _ensure_column(conn, "payment_status", "institute_id", "INTEGER")
+    _ensure_column(conn, "financial_records", "institute_id", "INTEGER")
+    _ensure_column(conn, "notices", "institute_id", "INTEGER")
 
-    # First-run demo data only — two students, each linked to their own parent
-    # account, so the parent-portal access control is visible out of the box.
-    if conn.execute("SELECT COUNT(*) FROM students").fetchone()[0] == 0:
+    # ---- Safety net: if this is an existing single-academy database (rows
+    # exist with institute_id still NULL), fold ALL of that real data into
+    # one grandfathered "legacy" institute instead of treating it as demo
+    # data or leaving it orphaned/invisible. This runs at most once per DB. ----
+    legacy_users = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE institute_id IS NULL AND (is_super_admin IS NULL OR is_super_admin=0)"
+    ).fetchone()[0]
+    legacy_students = conn.execute(
+        "SELECT COUNT(*) FROM students WHERE institute_id IS NULL"
+    ).fetchone()[0]
+
+    if legacy_users > 0 or legacy_students > 0:
+        admin_row = conn.execute(
+            "SELECT email FROM users WHERE role='Admin' AND institute_id IS NULL ORDER BY email LIMIT 1"
+        ).fetchone()
+        owner_email = admin_row["email"] if admin_row else "admin@academy.com"
+
+        existing_institute = conn.execute(
+            "SELECT id FROM institutes WHERE owner_email=?", (owner_email,)
+        ).fetchone()
+        if existing_institute:
+            legacy_institute_id = existing_institute["id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
+                ("My Academy", owner_email, "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
+            )
+            legacy_institute_id = cur.lastrowid
+
+        conn.execute(
+            "UPDATE users SET institute_id=? WHERE institute_id IS NULL AND (is_super_admin IS NULL OR is_super_admin=0)",
+            (legacy_institute_id,),
+        )
+        for table in ["students", "classrooms", "attendance", "payment_status", "financial_records", "notices"]:
+            conn.execute(f"UPDATE {table} SET institute_id=? WHERE institute_id IS NULL", (legacy_institute_id,))
+        conn.commit()
+
+    # ---- Brand-new install (no institutes at all yet): seed one demo
+    # institute with the original demo accounts/students, exactly like before. ----
+    if conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
+        cur = conn.execute(
+            "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
+            ("Demo Academy", "admin@academy.com", "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
+        )
+        demo_institute_id = cur.lastrowid
+
+        conn.execute(
+            "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
+            ("admin@academy.com", hash_password("admin123"), "Admin", demo_institute_id),
+        )
+        conn.execute(
+            "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
+            ("teacher@academy.com", hash_password("teacher123"), "Teacher", demo_institute_id),
+        )
+
         demo_students = [
             ("STU101", "Aarav Sharma", "Class 10", "Science", 1500, "parent1@academy.com"),
             ("STU102", "Rohan Das", "Class 10", "Science", 1500, "parent2@academy.com"),
         ]
         conn.executemany(
-            "INSERT INTO students(id, name, grade, subject, fee, parent_email) VALUES (?,?,?,?,?,?)",
-            demo_students,
+            "INSERT INTO students(id, name, grade, subject, fee, parent_email, institute_id) VALUES (?,?,?,?,?,?,?)",
+            [s + (demo_institute_id,) for s in demo_students],
         )
         conn.executemany(
-            "INSERT INTO users(email, password_hash, role) VALUES (?,?,?)",
+            "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
             [
-                ("parent1@academy.com", hash_password("parent123"), "Parent"),
-                ("parent2@academy.com", hash_password("parent123"), "Parent"),
+                ("parent1@academy.com", hash_password("parent123"), "Parent", demo_institute_id),
+                ("parent2@academy.com", hash_password("parent123"), "Parent", demo_institute_id),
             ],
         )
         conn.executemany(
-            "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method, institute_id) VALUES (?,?,?,?,?,?,?,?)",
             [
-                ("TXN901", "Aarav Sharma", "STU101", "2026-09-01", 1500, "Tuition Fee", "UPI / Online"),
-                ("TXN902", "Rohan Das", "STU102", "2026-09-03", 1500, "Tuition Fee", "Cash"),
+                ("TXN901", "Aarav Sharma", "STU101", "2026-09-01", 1500, "Tuition Fee", "UPI / Online", demo_institute_id),
+                ("TXN902", "Rohan Das", "STU102", "2026-09-03", 1500, "Tuition Fee", "Cash", demo_institute_id),
             ],
         )
         conn.execute(
-            "INSERT INTO payment_status(student_id, status) VALUES (?,?)",
-            ("STU101", "Paid"),
+            "INSERT INTO payment_status(student_id, status, institute_id) VALUES (?,?,?)",
+            ("STU101", "Paid", demo_institute_id),
+        )
+        conn.commit()
+
+    # ---- Ensure a Super Admin (platform owner) account always exists.
+    # Not tied to any institute — this is you, managing the whole platform. ----
+    if conn.execute("SELECT COUNT(*) FROM users WHERE is_super_admin=1").fetchone()[0] == 0:
+        conn.execute(
+            "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,1)",
+            ("owner@platform.com", hash_password("owner123"), "Admin", None),
         )
         conn.commit()
 
 # ---- Auth ----
 
 def authenticate(conn, email: str, password: str):
-    row = conn.execute("SELECT password_hash, role FROM users WHERE email=?", (email,)).fetchone()
+    row = conn.execute(
+        "SELECT password_hash, role, institute_id, is_super_admin FROM users WHERE email=?", (email,)
+    ).fetchone()
     if row and verify_password(password, row["password_hash"]):
-        return row["role"]
+        return {
+            "role": row["role"],
+            "institute_id": row["institute_id"],
+            "is_super_admin": bool(row["is_super_admin"]),
+        }
     return None
 
-def create_user_account(conn, email: str, password: str, role: str):
+def create_user_account(conn, institute_id: int, email: str, password: str, role: str):
     conn.execute(
-        "INSERT INTO users(email, password_hash, role) VALUES (?,?,?)",
-        (email, hash_password(password), role),
+        "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
+        (email, hash_password(password), role, institute_id),
     )
     conn.commit()
 
-def list_accounts_by_role(conn, role: str):
-    return [dict(r) for r in conn.execute("SELECT email FROM users WHERE role=? ORDER BY email", (role,)).fetchall()]
+def list_accounts_by_role(conn, institute_id: int, role: str):
+    return [dict(r) for r in conn.execute(
+        "SELECT email FROM users WHERE role=? AND institute_id=? ORDER BY email", (role, institute_id)
+    ).fetchall()]
 
-def delete_account(conn, email: str, role: str):
-    conn.execute("DELETE FROM users WHERE email=? AND role=?", (email, role))
+def delete_account(conn, institute_id: int, email: str, role: str):
+    conn.execute("DELETE FROM users WHERE email=? AND role=? AND institute_id=?", (email, role, institute_id))
     if role == "Parent":
-        conn.execute("UPDATE students SET parent_email=NULL WHERE parent_email=?", (email,))
+        conn.execute("UPDATE students SET parent_email=NULL WHERE parent_email=? AND institute_id=?", (email, institute_id))
     conn.commit()
 
-# Back-compat thin wrappers (kept so any existing call sites still work)
-def create_parent_account(conn, email: str, password: str):
-    create_user_account(conn, email, password, "Parent")
+def create_parent_account(conn, institute_id: int, email: str, password: str):
+    create_user_account(conn, institute_id, email, password, "Parent")
 
-def list_parent_accounts(conn):
-    return list_accounts_by_role(conn, "Parent")
+def list_parent_accounts(conn, institute_id: int):
+    return list_accounts_by_role(conn, institute_id, "Parent")
 
-def delete_parent_account(conn, email: str):
-    delete_account(conn, email, "Parent")
+def delete_parent_account(conn, institute_id: int, email: str):
+    delete_account(conn, institute_id, email, "Parent")
 
-def list_teacher_accounts(conn):
-    return list_accounts_by_role(conn, "Teacher")
+def list_teacher_accounts(conn, institute_id: int):
+    return list_accounts_by_role(conn, institute_id, "Teacher")
 
-def create_teacher_account(conn, email: str, password: str):
-    create_user_account(conn, email, password, "Teacher")
+def create_teacher_account(conn, institute_id: int, email: str, password: str):
+    create_user_account(conn, institute_id, email, password, "Teacher")
 
-def delete_teacher_account(conn, email: str):
-    delete_account(conn, email, "Teacher")
+def delete_teacher_account(conn, institute_id: int, email: str):
+    delete_account(conn, institute_id, email, "Teacher")
+
+# ---- Institutes (multi-tenancy) ----
+
+def create_institute_and_admin(conn, institute_name: str, owner_email: str, password: str):
+    cur = conn.execute(
+        "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
+        (institute_name, owner_email, "Free", FREE_STUDENT_LIMIT, datetime.date.today().strftime("%Y-%m-%d")),
+    )
+    institute_id = cur.lastrowid
+    conn.execute(
+        "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
+        (owner_email, hash_password(password), "Admin", institute_id),
+    )
+    conn.commit()
+    return institute_id
+
+def get_institute(conn, institute_id: int):
+    row = conn.execute("SELECT * FROM institutes WHERE id=?", (institute_id,)).fetchone()
+    return dict(row) if row else None
+
+def list_institutes(conn):
+    rows = conn.execute("SELECT * FROM institutes ORDER BY id").fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["student_count"] = conn.execute(
+            "SELECT COUNT(*) FROM students WHERE institute_id=?", (d["id"],)
+        ).fetchone()[0]
+        result.append(d)
+    return result
+
+def set_institute_plan(conn, institute_id: int, plan: str, student_limit: int):
+    conn.execute(
+        "UPDATE institutes SET plan=?, student_limit=? WHERE id=?", (plan, student_limit, institute_id)
+    )
+    conn.commit()
+
+def count_students(conn, institute_id: int) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM students WHERE institute_id=?", (institute_id,)
+    ).fetchone()[0]
+
+def can_add_student(conn, institute_id: int):
+    """Returns (allowed: bool, message: str|None). Premium institutes have no cap."""
+    plan = st.session_state.get("institute_plan", "Free")
+    if plan == "Premium":
+        return True, None
+    limit = st.session_state.get("student_limit", FREE_STUDENT_LIMIT)
+    current = count_students(conn, institute_id)
+    if current >= limit:
+        return False, (
+            f"You've reached the Free plan limit of {limit} students. "
+            f"Ask the platform owner to upgrade your institute to Premium to add more."
+        )
+    return True, None
 
 # ---- Students ----
 
-def list_students(conn, parent_email: str | None = None):
+def list_students(conn, institute_id: int, parent_email: str | None = None):
     if parent_email:
         rows = conn.execute(
-            "SELECT * FROM students WHERE parent_email=? ORDER BY name", (parent_email,)
+            "SELECT * FROM students WHERE institute_id=? AND parent_email=? ORDER BY name",
+            (institute_id, parent_email),
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM students ORDER BY name").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM students WHERE institute_id=? ORDER BY name", (institute_id,)
+        ).fetchall()
     return [dict(r) for r in rows]
 
-def add_student(conn, name, grade, subject, fee, parent_email=None):
-    # Base the next ID on the highest STUxxx number ever used, not the current
-    # row count — using COUNT(*) breaks after a delete, since a freed-up count
-    # can regenerate an ID that's still taken by another row (IntegrityError).
+def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email=None):
+    # Base the next ID on the highest STUxxx number ever used across the whole
+    # platform, not the current row count — using COUNT(*) breaks after a
+    # delete, since a freed-up count can regenerate an ID that's still taken.
     row = conn.execute("SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%'").fetchone()
     highest = row[0] if row and row[0] is not None else 100
     new_id = f"STU{highest + 1}"
     conn.execute(
-        "INSERT INTO students(id, name, grade, subject, fee, parent_email) VALUES (?,?,?,?,?,?)",
-        (new_id, name, grade, subject, fee, parent_email or None),
+        "INSERT INTO students(id, name, grade, subject, fee, parent_email, institute_id) VALUES (?,?,?,?,?,?,?)",
+        (new_id, name, grade, subject, fee, parent_email or None, institute_id),
     )
     conn.commit()
     return new_id
 
-def delete_student(conn, student_id: str):
-    conn.execute("DELETE FROM students WHERE id=?", (student_id,))
-    conn.execute("DELETE FROM payment_status WHERE student_id=?", (student_id,))
-    conn.execute("DELETE FROM attendance WHERE student_id=?", (student_id,))
+def delete_student(conn, institute_id: int, student_id: str):
+    conn.execute("DELETE FROM students WHERE id=? AND institute_id=?", (student_id, institute_id))
+    conn.execute("DELETE FROM payment_status WHERE student_id=? AND institute_id=?", (student_id, institute_id))
+    conn.execute("DELETE FROM attendance WHERE student_id=? AND institute_id=?", (student_id, institute_id))
     conn.commit()
 
-def update_student_parent_email(conn, student_id: str, parent_email: str | None):
-    conn.execute("UPDATE students SET parent_email=? WHERE id=?", (parent_email or None, student_id))
-    conn.commit()
-
-def update_student(conn, student_id: str, name: str, grade: str, subject: str, fee: int):
+def update_student_parent_email(conn, institute_id: int, student_id: str, parent_email: str | None):
     conn.execute(
-        "UPDATE students SET name=?, grade=?, subject=?, fee=? WHERE id=?",
-        (name, grade, subject, fee, student_id),
+        "UPDATE students SET parent_email=? WHERE id=? AND institute_id=?",
+        (parent_email or None, student_id, institute_id),
     )
     conn.commit()
 
-def get_student(conn, student_id: str):
-    row = conn.execute("SELECT * FROM students WHERE id=?", (student_id,)).fetchone()
+def update_student(conn, institute_id: int, student_id: str, name: str, grade: str, subject: str, fee: int):
+    conn.execute(
+        "UPDATE students SET name=?, grade=?, subject=?, fee=? WHERE id=? AND institute_id=?",
+        (name, grade, subject, fee, student_id, institute_id),
+    )
+    conn.commit()
+
+def get_student(conn, institute_id: int, student_id: str):
+    row = conn.execute(
+        "SELECT * FROM students WHERE id=? AND institute_id=?", (student_id, institute_id)
+    ).fetchone()
     return dict(row) if row else None
 
 # ---- Classrooms ----
 
-def list_classrooms(conn):
-    return [dict(r) for r in conn.execute("SELECT * FROM classrooms ORDER BY id").fetchall()]
+def list_classrooms(conn, institute_id: int):
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM classrooms WHERE institute_id=? ORDER BY id", (institute_id,)
+    ).fetchall()]
 
-def add_classroom(conn, title, subject, section, fee):
+def add_classroom(conn, institute_id: int, title, subject, section, fee):
     conn.execute(
-        "INSERT INTO classrooms(title, subject, section, fee) VALUES (?,?,?,?)",
-        (title, subject, section, fee),
+        "INSERT INTO classrooms(title, subject, section, fee, institute_id) VALUES (?,?,?,?,?)",
+        (title, subject, section, fee, institute_id),
     )
     conn.commit()
 
 # ---- Attendance ----
 
-def save_attendance(conn, date_str: str, entries: list[dict]):
+def save_attendance(conn, institute_id: int, date_str: str, entries: list[dict]):
     """entries: [{student_id, status, class_name}, ...]"""
     for e in entries:
         conn.execute(
-            """INSERT INTO attendance(date, student_id, status, class_name) VALUES (?,?,?,?)
+            """INSERT INTO attendance(date, student_id, status, class_name, institute_id) VALUES (?,?,?,?,?)
                ON CONFLICT(date, student_id) DO UPDATE SET status=excluded.status, class_name=excluded.class_name""",
-            (date_str, e["student_id"], e["status"], e["class_name"]),
+            (date_str, e["student_id"], e["status"], e["class_name"], institute_id),
         )
     conn.commit()
 
-def attendance_history(conn, student_id: str):
+def attendance_history(conn, institute_id: int, student_id: str):
     rows = conn.execute(
-        "SELECT date, status FROM attendance WHERE student_id=? ORDER BY date DESC", (student_id,)
+        "SELECT date, status FROM attendance WHERE student_id=? AND institute_id=? ORDER BY date DESC",
+        (student_id, institute_id),
     ).fetchall()
     return [(r["date"], r["status"]) for r in rows]
 
 # ---- Fees ----
 
-def get_payment_status(conn, student_id: str) -> str:
-    row = conn.execute("SELECT status FROM payment_status WHERE student_id=?", (student_id,)).fetchone()
+def get_payment_status(conn, institute_id: int, student_id: str) -> str:
+    row = conn.execute(
+        "SELECT status FROM payment_status WHERE student_id=? AND institute_id=?", (student_id, institute_id)
+    ).fetchone()
     return row["status"] if row else "Unpaid"
 
 def _next_tx_id(conn) -> str:
@@ -287,23 +434,23 @@ def _next_tx_id(conn) -> str:
     highest = row[0] if row and row[0] is not None else 900
     return f"TXN{highest + 1}"
 
-def set_payment_status(conn, student_id: str, status: str):
-    previous_status = get_payment_status(conn, student_id)
+def set_payment_status(conn, institute_id: int, student_id: str, status: str):
+    previous_status = get_payment_status(conn, institute_id, student_id)
 
     conn.execute(
-        """INSERT INTO payment_status(student_id, status) VALUES (?,?)
+        """INSERT INTO payment_status(student_id, status, institute_id) VALUES (?,?,?)
            ON CONFLICT(student_id) DO UPDATE SET status=excluded.status""",
-        (student_id, status),
+        (student_id, status, institute_id),
     )
 
     # Auto-log a transaction the moment a student flips Unpaid -> Paid, so the
     # ledger and "Fee Status: Paid" never disagree. Re-saving an already-Paid
     # status (no change) does NOT create a duplicate entry.
     if status == "Paid" and previous_status != "Paid":
-        student = get_student(conn, student_id)
+        student = get_student(conn, institute_id, student_id)
         if student:
             conn.execute(
-                "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method) VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method, institute_id) VALUES (?,?,?,?,?,?,?,?)",
                 (
                     _next_tx_id(conn),
                     student["name"],
@@ -312,35 +459,42 @@ def set_payment_status(conn, student_id: str, status: str):
                     student.get("fee", 0),
                     "Tuition Fee",
                     "Marked Paid (Fee Desk)",
+                    institute_id,
                 ),
             )
 
     conn.commit()
 
-def list_financial_records(conn, student_id: str | None = None, student_name: str | None = None):
+def list_financial_records(conn, institute_id: int, student_id: str | None = None, student_name: str | None = None):
     if student_id or student_name:
         # Match by student_id when present (new records); fall back to matching
         # by name for older rows recorded before student_id was tracked.
         rows = conn.execute(
             """SELECT * FROM financial_records
-               WHERE (student_id IS NOT NULL AND student_id=?)
+               WHERE institute_id=? AND (
+                     (student_id IS NOT NULL AND student_id=?)
                   OR (student_id IS NULL AND student=?)
+               )
                ORDER BY date DESC""",
-            (student_id, student_name),
+            (institute_id, student_id, student_name),
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM financial_records ORDER BY date DESC").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM financial_records WHERE institute_id=? ORDER BY date DESC", (institute_id,)
+        ).fetchall()
     return [dict(r) for r in rows]
 
 # ---- Notices ----
 
-def list_notices(conn):
-    return [dict(r) for r in conn.execute("SELECT * FROM notices ORDER BY id DESC").fetchall()]
+def list_notices(conn, institute_id: int):
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM notices WHERE institute_id=? ORDER BY id DESC", (institute_id,)
+    ).fetchall()]
 
-def add_notice(conn, title, body, priority, date_str):
+def add_notice(conn, institute_id: int, title, body, priority, date_str):
     conn.execute(
-        "INSERT INTO notices(title, body, priority, date) VALUES (?,?,?,?)",
-        (title, body, priority, date_str),
+        "INSERT INTO notices(title, body, priority, date, institute_id) VALUES (?,?,?,?,?)",
+        (title, body, priority, date_str, institute_id),
     )
     conn.commit()
 
@@ -354,6 +508,11 @@ for key, default in {
     "logged_in_role": None,
     "user_email": "",
     "active_view": None,
+    "institute_id": None,
+    "institute_name": None,
+    "institute_plan": "Free",
+    "student_limit": FREE_STUDENT_LIMIT,
+    "is_super_admin": False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -586,7 +745,7 @@ def render_header(title: str, subtitle: str, size: int = 48):
     """, unsafe_allow_html=True)
 
 def render_admin_quick_nav(current: str):
-    if st.session_state.get("logged_in_role") != "Admin":
+    if st.session_state.get("logged_in_role") != "Admin" or st.session_state.get("is_super_admin"):
         return
     labels = {
         "Admin": "⬅ Return to Admin Console",
@@ -608,8 +767,23 @@ def logout_button(key: str):
         st.session_state.clear()
         st.rerun()
 
+def render_plan_banner(institute_id: int):
+    """Shows Free-plan usage + manual-upgrade instructions on the Admin console."""
+    plan = st.session_state.get("institute_plan", "Free")
+    if plan == "Premium":
+        return
+    limit = st.session_state.get("student_limit", FREE_STUDENT_LIMIT)
+    used = count_students(conn, institute_id)
+    st.markdown(f"""
+    <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid #38bdf8; border-radius: 12px; padding: 14px 18px; margin-bottom: 18px;">
+        <strong style="color: #38bdf8;">Free Plan</strong>
+        <span style="color: #e2e8f0;"> — {used}/{limit} students used.</span>
+        <span style="color: #94a3b8;"> Need more? Pay the platform owner directly (UPI/bank transfer) and ask to be upgraded to Premium — it's a manual flip on their end, usually same-day.</span>
+    </div>
+    """, unsafe_allow_html=True)
+
 # ----------------------------------------------------
-# 8. VIEW: LOGIN
+# 8. VIEW: LOGIN / SIGNUP
 # ----------------------------------------------------
 
 def show_login():
@@ -617,44 +791,82 @@ def show_login():
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
         {logo_img_tag()}
         <div>
-            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">MathScience Academy</h2>
+            <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Tuition Academy Platform</h2>
             <p style="margin: 0; color: #94a3b8; font-size: 13px;">Secure Portal Authentication</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("Welcome! Please log in to securely access your portal.")
+    tab_login, tab_signup = st.tabs(["🔐 Log In", "🏫 Create Institute Account"])
 
-    with st.form("login_form"):
-        email_input = st.text_input("Registered Email Address", placeholder="name@academy.com")
-        password_input = st.text_input("Account Password", type="password", placeholder="••••••••")
-        submit_btn = st.form_submit_button("Access Dashboard", use_container_width=True)
+    with tab_login:
+        st.markdown("Welcome! Please log in to securely access your portal.")
 
-        if submit_btn:
-            clean_email = email_input.strip().lower()
-            role = authenticate(conn, clean_email, password_input)
-            if role:
-                st.session_state.logged_in = True
-                st.session_state.logged_in_role = role
-                st.session_state.user_email = clean_email
-                st.session_state.active_view = role
-                st.rerun()
-            else:
-                st.error("Invalid email or password. Please verify credentials.")
+        with st.form("login_form"):
+            email_input = st.text_input("Registered Email Address", placeholder="name@academy.com")
+            password_input = st.text_input("Account Password", type="password", placeholder="••••••••")
+            submit_btn = st.form_submit_button("Access Dashboard", use_container_width=True)
 
-    with st.expander("Demo credentials", expanded=False):
-        st.caption(
-            "Admin: admin@academy.com / admin123  \n"
-            "Teacher: teacher@academy.com / teacher123  \n"
-            "Parent (Aarav's family): parent1@academy.com / parent123  \n"
-            "Parent (Rohan's family): parent2@academy.com / parent123"
-        )
+            if submit_btn:
+                clean_email = email_input.strip().lower()
+                result = authenticate(conn, clean_email, password_input)
+                if result:
+                    st.session_state.logged_in = True
+                    st.session_state.logged_in_role = result["role"]
+                    st.session_state.user_email = clean_email
+                    st.session_state.is_super_admin = result["is_super_admin"]
+                    st.session_state.institute_id = result["institute_id"]
+
+                    if result["institute_id"]:
+                        inst = get_institute(conn, result["institute_id"])
+                        if inst:
+                            st.session_state.institute_name = inst["name"]
+                            st.session_state.institute_plan = inst["plan"]
+                            st.session_state.student_limit = inst["student_limit"]
+
+                    st.session_state.active_view = "SuperAdmin" if result["is_super_admin"] else result["role"]
+                    st.rerun()
+                else:
+                    st.error("Invalid email or password. Please verify credentials.")
+
+        with st.expander("Demo credentials", expanded=False):
+            st.caption(
+                "Admin: admin@academy.com / admin123  \n"
+                "Teacher: teacher@academy.com / teacher123  \n"
+                "Parent (Aarav's family): parent1@academy.com / parent123  \n"
+                "Parent (Rohan's family): parent2@academy.com / parent123"
+            )
+
+    with tab_signup:
+        st.markdown("### Start your own tuition academy on this platform")
+        st.caption(f"Free plan includes up to {FREE_STUDENT_LIMIT} students, no credit card needed. Upgrade any time by contacting the platform owner.")
+
+        with st.form("signup_form", clear_on_submit=True):
+            s_institute = st.text_input("Institute / Academy Name", placeholder="e.g., Bright Minds Tuition")
+            s_email = st.text_input("Your Email (this becomes your Admin login)", placeholder="owner@myacademy.com")
+            s_pass = st.text_input("Create Password", type="password")
+
+            if st.form_submit_button("Create My Academy Account", use_container_width=True):
+                clean_s_email = s_email.strip().lower()
+                if s_institute.strip() and clean_s_email and s_pass.strip():
+                    existing = conn.execute("SELECT 1 FROM users WHERE email=?", (clean_s_email,)).fetchone()
+                    if existing:
+                        st.error("An account with that email already exists. Please log in instead.")
+                    else:
+                        create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
+                        st.success(
+                            f"Account created! '{s_institute.strip()}' is live on the Free plan "
+                            f"(up to {FREE_STUDENT_LIMIT} students). Please log in above."
+                        )
+                else:
+                    st.warning("Please fill in all fields.")
 
 # ----------------------------------------------------
 # 9. VIEW: TEACHER DASHBOARD
 # ----------------------------------------------------
 
 def show_teacher_dashboard():
+    institute_id = st.session_state.get("institute_id")
     render_admin_quick_nav("Teacher")
     render_header("Tuition Operations Console", "Teacher Desk • Operations Console")
 
@@ -674,13 +886,13 @@ def show_teacher_dashboard():
 
             if st.form_submit_button("Save Classroom", use_container_width=True):
                 if r_title.strip() and r_subj.strip():
-                    add_classroom(conn, r_title.strip(), r_subj.strip(), r_batch.strip() or "Regular", r_fee)
+                    add_classroom(conn, institute_id, r_title.strip(), r_subj.strip(), r_batch.strip() or "Regular", r_fee)
                     st.success("Classroom created successfully!")
                     st.rerun()
                 else:
                     st.warning("Please provide both a Class level and a Subject.")
 
-    classrooms = list_classrooms(conn)
+    classrooms = list_classrooms(conn, institute_id)
     active_room = None
     if classrooms:
         room_labels = [f"{r['title']} — {r['subject']} ({r['section']})" for r in classrooms]
@@ -713,7 +925,7 @@ def show_teacher_dashboard():
     # ---------------- TAB 1: STUDENT MANAGEMENT ----------------
     with tab_students:
         st.subheader("Academy Student Roster")
-        all_students = list_students(conn)
+        all_students = list_students(conn, institute_id)
 
         if all_students:
             st.dataframe(all_students, use_container_width=True, hide_index=True)
@@ -739,16 +951,21 @@ def show_teacher_dashboard():
 
                 if st.form_submit_button("Save Student to Records", use_container_width=True):
                     if stu_name.strip():
-                        add_student(
-                            conn,
-                            stu_name.strip(),
-                            stu_grade.strip() or "General",
-                            stu_subject.strip() or "General",
-                            stu_fee,
-                            stu_parent_email.strip().lower() or None,
-                        )
-                        st.success(f"Added {stu_name.strip()} successfully!")
-                        st.rerun()
+                        allowed, limit_msg = can_add_student(conn, institute_id)
+                        if not allowed:
+                            st.error(limit_msg)
+                        else:
+                            add_student(
+                                conn,
+                                institute_id,
+                                stu_name.strip(),
+                                stu_grade.strip() or "General",
+                                stu_subject.strip() or "General",
+                                stu_fee,
+                                stu_parent_email.strip().lower() or None,
+                            )
+                            st.success(f"Added {stu_name.strip()} successfully!")
+                            st.rerun()
                     else:
                         st.warning("Please enter student name.")
 
@@ -764,7 +981,7 @@ def show_teacher_dashboard():
                     key="new_parent_email_input"
                 )
                 if st.button("Update Link", use_container_width=True, key="update_parent_link_btn"):
-                    update_student_parent_email(conn, chosen["id"], new_parent_email.strip().lower() or None)
+                    update_student_parent_email(conn, institute_id, chosen["id"], new_parent_email.strip().lower() or None)
                     st.success("Parent link updated.")
                     st.rerun()
             else:
@@ -776,7 +993,7 @@ def show_teacher_dashboard():
                 del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select")
                 if st.button("Confirm Delete", type="primary", use_container_width=True):
                     chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
-                    delete_student(conn, chosen_id)
+                    delete_student(conn, institute_id, chosen_id)
                     st.success("Student removed.")
                     st.rerun()
             else:
@@ -788,7 +1005,7 @@ def show_teacher_dashboard():
         today_str = datetime.date.today().strftime("%Y-%m-%d")
         st.caption(f"Logging Record for: **{today_str}**")
 
-        all_students = list_students(conn)
+        all_students = list_students(conn, institute_id)
         registered_rooms = sorted(list(set(s.get("grade", "").strip() for s in all_students if s.get("grade"))))
 
         if not registered_rooms:
@@ -830,19 +1047,19 @@ def show_teacher_dashboard():
                 }
                 for s in active_roster
             ]
-            save_attendance(conn, today_str, entries)
+            save_attendance(conn, institute_id, today_str, entries)
             present_count = sum(1 for e in entries if e["status"] == "Present")
             st.success(f"Attendance recorded! Present: {present_count} | Absent: {len(entries) - present_count}")
 
     # ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
         st.subheader("Tuition Fee Management")
-        all_students = list_students(conn)
+        all_students = list_students(conn, institute_id)
 
         if all_students:
             total_expected = sum(s.get("fee", 0) for s in all_students)
             total_collected = sum(
-                s.get("fee", 0) for s in all_students if get_payment_status(conn, s["id"]) == "Paid"
+                s.get("fee", 0) for s in all_students if get_payment_status(conn, institute_id, s["id"]) == "Paid"
             )
             total_due = total_expected - total_collected
 
@@ -859,7 +1076,7 @@ def show_teacher_dashboard():
                 new_statuses = {}
                 for student in all_students:
                     s_id = student["id"]
-                    current_val = get_payment_status(conn, s_id)
+                    current_val = get_payment_status(conn, institute_id, s_id)
 
                     f_col1, f_col2 = st.columns([3, 2])
                     with f_col1:
@@ -883,13 +1100,13 @@ def show_teacher_dashboard():
 
                 if submit_fee_update:
                     for sid, stat in new_statuses.items():
-                        set_payment_status(conn, sid, stat)
+                        set_payment_status(conn, institute_id, sid, stat)
                     st.success("Payment records updated!")
                     st.rerun()
 
             st.write("---")
 
-            unpaid_students = [s for s in all_students if get_payment_status(conn, s["id"]) == "Unpaid"]
+            unpaid_students = [s for s in all_students if get_payment_status(conn, institute_id, s["id"]) == "Unpaid"]
             if unpaid_students:
                 st.markdown(f"""
                 <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 10px; padding: 12px 16px;">
@@ -906,7 +1123,7 @@ def show_teacher_dashboard():
 
         st.write("---")
         st.markdown("### Raw Transaction Ledger")
-        records = list_financial_records(conn)
+        records = list_financial_records(conn, institute_id)
         if records:
             st.dataframe(records, use_container_width=True, hide_index=True)
         else:
@@ -924,13 +1141,13 @@ def show_teacher_dashboard():
 
                 if st.form_submit_button("Publish Announcement", use_container_width=True):
                     if n_title.strip() and n_body.strip():
-                        add_notice(conn, n_title.strip(), n_body.strip(), n_priority, datetime.date.today().strftime("%d %b %Y"))
+                        add_notice(conn, institute_id, n_title.strip(), n_body.strip(), n_priority, datetime.date.today().strftime("%d %b %Y"))
                         st.success("Notice published successfully!")
                         st.rerun()
                     else:
                         st.warning("Please provide both a title and details.")
 
-        notices = list_notices(conn)
+        notices = list_notices(conn, institute_id)
         if notices:
             for notice in notices:
                 border_color = "#ef4444" if notice["priority"] == "Urgent" else ("#f59e0b" if notice["priority"] == "Exam/Test" else "#38bdf8")
@@ -953,14 +1170,14 @@ def show_teacher_dashboard():
 # 10. VIEW: PARENT DASHBOARD
 # ----------------------------------------------------
 
-def render_child_card(child: dict):
+def render_child_card(child: dict, institute_id: int):
     child_id = child.get("id", "")
     child_name = child.get("name", "")
 
-    fee_status = get_payment_status(conn, child_id)
+    fee_status = get_payment_status(conn, institute_id, child_id)
     status_badge_color = "#4ade80" if fee_status == "Paid" else "#f87171"
 
-    history_rows = attendance_history(conn, child_id)
+    history_rows = attendance_history(conn, institute_id, child_id)
     total_days = len(history_rows)
     present_days = sum(1 for _, status in history_rows if status == "Present")
     attendance_pct = int((present_days / total_days) * 100) if total_days > 0 else 100
@@ -1001,7 +1218,7 @@ def render_child_card(child: dict):
 
     with detail_col2:
         with st.expander(f"💳 Payment History — {child_name}", expanded=False):
-            tx_list = list_financial_records(conn, student_id=child_id, student_name=child_name)
+            tx_list = list_financial_records(conn, institute_id, student_id=child_id, student_name=child_name)
             if tx_list:
                 st.dataframe(tx_list, use_container_width=True, hide_index=True)
             else:
@@ -1010,7 +1227,7 @@ def render_child_card(child: dict):
     with st.expander(f"📢 Notices for {child.get('grade', 'this class')}", expanded=False):
         # Notice board isn't tagged by class today, so this shows all academy
         # notices for now — swap in a grade filter once notices carry one.
-        notices = list_notices(conn)
+        notices = list_notices(conn, institute_id)
         if notices:
             for n in notices:
                 border_color = "#ef4444" if n["priority"] == "Urgent" else ("#f59e0b" if n["priority"] == "Exam/Test" else "#38bdf8")
@@ -1027,13 +1244,14 @@ def render_child_card(child: dict):
             st.info("No notices posted yet.")
 
 def show_parent_dashboard():
+    institute_id = st.session_state.get("institute_id")
     render_admin_quick_nav("Parent")
 
-    is_admin_viewing = st.session_state.get("logged_in_role") == "Admin"
+    is_admin_viewing = st.session_state.get("logged_in_role") == "Admin" and not st.session_state.get("is_super_admin")
     parent_email = st.session_state.get("user_email", "")
 
     if is_admin_viewing:
-        parent_accounts = list_parent_accounts(conn)
+        parent_accounts = list_parent_accounts(conn, institute_id)
         parent_emails = [p["email"] for p in parent_accounts]
         if parent_emails:
             chosen = st.selectbox(
@@ -1046,7 +1264,7 @@ def show_parent_dashboard():
             st.info("No parent accounts exist yet — create one from the Admin Console.")
             return
 
-    my_children = list_students(conn, parent_email=parent_email)
+    my_children = list_students(conn, institute_id, parent_email=parent_email)
 
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
@@ -1067,7 +1285,7 @@ def show_parent_dashboard():
         )
     else:
         for child in my_children:
-            render_child_card(child)
+            render_child_card(child, institute_id)
 
     if st.session_state.get("logged_in_role") == "Parent":
         logout_button("parent_logout_btn")
@@ -1077,7 +1295,11 @@ def show_parent_dashboard():
 # ----------------------------------------------------
 
 def show_admin_dashboard():
-    render_header("Admin Master Console", "Executive Management • Full Academy Controls")
+    institute_id = st.session_state.get("institute_id")
+    institute_name = st.session_state.get("institute_name") or "Your Academy"
+    render_header("Admin Master Console", f"{institute_name} • Executive Management")
+
+    render_plan_banner(institute_id)
 
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
@@ -1091,10 +1313,10 @@ def show_admin_dashboard():
 
     st.write("---")
 
-    all_students = list_students(conn)
+    all_students = list_students(conn, institute_id)
     enrolled_count = len(all_students)
     total_rev = sum(s.get("fee", 0) for s in all_students)
-    total_collected = sum(s.get("fee", 0) for s in all_students if get_payment_status(conn, s["id"]) == "Paid")
+    total_collected = sum(s.get("fee", 0) for s in all_students if get_payment_status(conn, institute_id, s["id"]) == "Paid")
 
     m_col1, m_col2, m_col3 = st.columns(3)
     with m_col1:
@@ -1125,16 +1347,21 @@ def show_admin_dashboard():
             )
             if st.form_submit_button("Save Student", use_container_width=True):
                 if a_name.strip():
-                    add_student(
-                        conn,
-                        a_name.strip(),
-                        a_grade.strip() or "General",
-                        a_subject.strip() or "General",
-                        a_fee,
-                        a_parent_email.strip().lower() or None,
-                    )
-                    st.success(f"Added {a_name.strip()} successfully!")
-                    st.rerun()
+                    allowed, limit_msg = can_add_student(conn, institute_id)
+                    if not allowed:
+                        st.error(limit_msg)
+                    else:
+                        add_student(
+                            conn,
+                            institute_id,
+                            a_name.strip(),
+                            a_grade.strip() or "General",
+                            a_subject.strip() or "General",
+                            a_fee,
+                            a_parent_email.strip().lower() or None,
+                        )
+                        st.success(f"Added {a_name.strip()} successfully!")
+                        st.rerun()
                 else:
                     st.warning("Please enter student name.")
 
@@ -1154,8 +1381,8 @@ def show_admin_dashboard():
                     value=editing.get("parent_email") or ""
                 )
                 if st.form_submit_button("Save Changes", use_container_width=True):
-                    update_student(conn, editing["id"], e_name.strip(), e_grade.strip() or "General", e_subject.strip() or "General", e_fee)
-                    update_student_parent_email(conn, editing["id"], e_parent_email.strip().lower() or None)
+                    update_student(conn, institute_id, editing["id"], e_name.strip(), e_grade.strip() or "General", e_subject.strip() or "General", e_fee)
+                    update_student_parent_email(conn, institute_id, editing["id"], e_parent_email.strip().lower() or None)
                     st.success("Student record updated.")
                     st.rerun()
         else:
@@ -1167,7 +1394,7 @@ def show_admin_dashboard():
             del_choice = st.selectbox("Select Student to Remove", del_options, key="admin_del_stu_select")
             if st.button("Confirm Delete", type="primary", use_container_width=True, key="admin_del_stu_btn"):
                 chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
-                delete_student(conn, chosen_id)
+                delete_student(conn, institute_id, chosen_id)
                 st.success("Student removed.")
                 st.rerun()
         else:
@@ -1175,7 +1402,7 @@ def show_admin_dashboard():
 
     st.write("---")
     st.subheader("Master Financial Ledger")
-    records = list_financial_records(conn)
+    records = list_financial_records(conn, institute_id)
     if records:
         st.dataframe(records, use_container_width=True, hide_index=True)
     else:
@@ -1198,11 +1425,11 @@ def show_admin_dashboard():
                 clean_email = p_email.strip().lower()
                 if clean_email and p_pass.strip():
                     try:
-                        create_parent_account(conn, clean_email, p_pass)
+                        create_parent_account(conn, institute_id, clean_email, p_pass)
                         for name in p_children:
                             match = next((s for s in all_students if s["name"] == name), None)
                             if match:
-                                update_student_parent_email(conn, match["id"], clean_email)
+                                update_student_parent_email(conn, institute_id, match["id"], clean_email)
                         st.success(f"Parent account created for {clean_email}.")
                         st.rerun()
                     except sqlite3.IntegrityError:
@@ -1210,7 +1437,7 @@ def show_admin_dashboard():
                 else:
                     st.warning("Email and password are required.")
 
-    parent_accounts = list_parent_accounts(conn)
+    parent_accounts = list_parent_accounts(conn, institute_id)
     if parent_accounts:
         for pr in parent_accounts:
             linked_names = [s["name"] for s in all_students if s.get("parent_email") == pr["email"]]
@@ -1220,7 +1447,7 @@ def show_admin_dashboard():
                 st.markdown(f"**{pr['email']}** — linked to: {linked_text}")
             with p_col2:
                 if st.button("Remove", key=f"del_parent_{pr['email']}", use_container_width=True):
-                    delete_parent_account(conn, pr["email"])
+                    delete_parent_account(conn, institute_id, pr["email"])
                     st.rerun()
     else:
         st.info("No parent accounts yet — create one above.")
@@ -1237,7 +1464,7 @@ def show_admin_dashboard():
                 clean_t_email = t_email.strip().lower()
                 if clean_t_email and t_pass.strip():
                     try:
-                        create_teacher_account(conn, clean_t_email, t_pass)
+                        create_teacher_account(conn, institute_id, clean_t_email, t_pass)
                         st.success(f"Teacher account created for {clean_t_email}.")
                         st.rerun()
                     except sqlite3.IntegrityError:
@@ -1245,7 +1472,7 @@ def show_admin_dashboard():
                 else:
                     st.warning("Email and password are required.")
 
-    teacher_accounts = list_teacher_accounts(conn)
+    teacher_accounts = list_teacher_accounts(conn, institute_id)
     if teacher_accounts:
         for tr in teacher_accounts:
             t_col1, t_col2 = st.columns([4, 1])
@@ -1253,7 +1480,7 @@ def show_admin_dashboard():
                 st.markdown(f"**{tr['email']}**")
             with t_col2:
                 if st.button("Remove", key=f"del_teacher_{tr['email']}", use_container_width=True):
-                    delete_teacher_account(conn, tr["email"])
+                    delete_teacher_account(conn, institute_id, tr["email"])
                     st.rerun()
     else:
         st.info("No teacher accounts yet — create one above.")
@@ -1261,29 +1488,89 @@ def show_admin_dashboard():
     logout_button("admin_logout_btn")
 
 # ----------------------------------------------------
-# 12. CORE APP ROUTER & SIDEBAR CONTROLLER
+# 12. VIEW: SUPER ADMIN DASHBOARD (platform owner — you)
+# ----------------------------------------------------
+
+def show_super_admin_dashboard():
+    render_header("Super Admin Console", "Platform Owner • Manage every institute")
+
+    institutes = list_institutes(conn)
+    total_institutes = len(institutes)
+    premium_count = sum(1 for i in institutes if i["plan"] == "Premium")
+    free_count = total_institutes - premium_count
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Total Institutes", total_institutes)
+    with c2:
+        st.metric("Premium", premium_count)
+    with c3:
+        st.metric("Free", free_count)
+
+    st.write("---")
+    st.subheader("All Institutes")
+    st.caption("Flip an institute to Premium once they've paid you manually (UPI/bank transfer).")
+
+    if institutes:
+        for inst in institutes:
+            limit_display = "Unlimited" if inst["plan"] == "Premium" else inst["student_limit"]
+            with st.expander(f"{inst['name']} — {inst['owner_email']}  ({inst['plan']})", expanded=False):
+                i_col1, i_col2, i_col3 = st.columns(3)
+                with i_col1:
+                    st.metric("Students", inst["student_count"])
+                with i_col2:
+                    st.write(f"**Plan:** {inst['plan']}")
+                    st.write(f"**Limit:** {limit_display}")
+                with i_col3:
+                    st.write(f"**Created:** {inst.get('created_at', '—')}")
+
+                new_plan = st.selectbox(
+                    "Change Plan",
+                    ["Free", "Premium"],
+                    index=0 if inst["plan"] == "Free" else 1,
+                    key=f"plan_select_{inst['id']}"
+                )
+                if st.button("💾 Save Plan", key=f"save_plan_{inst['id']}", use_container_width=True):
+                    new_limit = FREE_STUDENT_LIMIT if new_plan == "Free" else 999999
+                    set_institute_plan(conn, inst["id"], new_plan, new_limit)
+                    st.success(f"{inst['name']} is now on the {new_plan} plan. They'll see it reflected next time they log in.")
+                    st.rerun()
+    else:
+        st.info("No institutes have signed up yet.")
+
+    logout_button("superadmin_logout_btn")
+
+# ----------------------------------------------------
+# 13. CORE APP ROUTER & SIDEBAR CONTROLLER
 # ----------------------------------------------------
 if not st.session_state.get("logged_in", False):
     show_login()
 else:
     logged_role = st.session_state.get("logged_in_role", "Teacher")
+    is_super = bool(st.session_state.get("is_super_admin"))
 
-    if logged_role != "Admin":
+    if is_super:
+        st.session_state.active_view = "SuperAdmin"
+    elif logged_role != "Admin":
         st.session_state.active_view = logged_role
     elif st.session_state.get("active_view") not in ("Admin", "Teacher", "Parent"):
         st.session_state.active_view = "Admin"
 
     with st.sidebar:
+        role_label = "Super Admin" if is_super else logged_role
         st.markdown(f"""
         <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
             <div style="display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%); color: #ffffff; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 8px;">
-                {logged_role} Mode
+                {role_label} Mode
             </div>
             <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{st.session_state.get('user_email', '')}</p>
         </div>
         """, unsafe_allow_html=True)
 
-        if logged_role == "Admin":
+        if not is_super and st.session_state.get("institute_name"):
+            st.caption(f"🏫 {st.session_state.get('institute_name')} • {st.session_state.get('institute_plan', 'Free')} Plan")
+
+        if logged_role == "Admin" and not is_super:
             st.markdown("### 🛠️ Admin Navigation")
             pages = ["Admin", "Teacher", "Parent"]
             current_idx = pages.index(st.session_state.active_view)
@@ -1306,6 +1593,7 @@ else:
     dashboard_routes = {
         "Admin": show_admin_dashboard,
         "Teacher": show_teacher_dashboard,
-        "Parent": show_parent_dashboard
+        "Parent": show_parent_dashboard,
+        "SuperAdmin": show_super_admin_dashboard,
     }
     dashboard_routes.get(st.session_state.active_view, show_admin_dashboard)()
