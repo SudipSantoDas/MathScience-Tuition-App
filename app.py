@@ -22,6 +22,15 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "academy.db")
 # (manually, via the Super Admin console, until online billing is wired up).
 FREE_STUDENT_LIMIT = 15
 
+# Super Admin (platform owner) credentials — only used the very first time the
+# app runs against a brand-new database, to seed the account. Set these as
+# environment variables on Streamlit Cloud (Settings -> Secrets) BEFORE first
+# deploy so the seeded account isn't the public default. After that first run,
+# use the in-app "Change Password" form in the Super Admin console instead —
+# these env vars won't touch an already-seeded account on later restarts.
+SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "owner@platform.com")
+SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "owner123")
+
 # ----------------------------------------------------
 # 2. PASSWORD HASHING
 # ----------------------------------------------------
@@ -223,11 +232,17 @@ def init_db(conn: sqlite3.Connection):
     if conn.execute("SELECT COUNT(*) FROM users WHERE is_super_admin=1").fetchone()[0] == 0:
         conn.execute(
             "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,1)",
-            ("owner@platform.com", hash_password("owner123"), "Admin", None),
+            (SUPER_ADMIN_EMAIL, hash_password(SUPER_ADMIN_PASSWORD), "Admin", None),
         )
         conn.commit()
 
 # ---- Auth ----
+
+def update_password(conn, email: str, new_password: str):
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_password), email)
+    )
+    conn.commit()
 
 def authenticate(conn, email: str, password: str):
     row = conn.execute(
@@ -1537,6 +1552,29 @@ def show_super_admin_dashboard():
                     st.rerun()
     else:
         st.info("No institutes have signed up yet.")
+
+    st.write("---")
+    st.subheader("🔑 Change Your Password")
+    st.caption("Do this now if you're still on the default seeded password.")
+
+    with st.form("super_admin_change_pw_form", clear_on_submit=True):
+        current_pw = st.text_input("Current Password", type="password")
+        new_pw = st.text_input("New Password", type="password")
+        confirm_pw = st.text_input("Confirm New Password", type="password")
+
+        if st.form_submit_button("Update Password", use_container_width=True):
+            my_email = st.session_state.get("user_email", "")
+            if not verify_password(current_pw, conn.execute(
+                "SELECT password_hash FROM users WHERE email=?", (my_email,)
+            ).fetchone()["password_hash"]):
+                st.error("Current password is incorrect.")
+            elif len(new_pw) < 8:
+                st.warning("New password should be at least 8 characters.")
+            elif new_pw != confirm_pw:
+                st.warning("New password and confirmation don't match.")
+            else:
+                update_password(conn, my_email, new_pw)
+                st.success("Password updated. Use it next time you log in.")
 
     logout_button("superadmin_logout_btn")
 
