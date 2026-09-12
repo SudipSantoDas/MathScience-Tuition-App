@@ -517,6 +517,7 @@ for key, default in {
     "institute_plan": "Free",
     "student_limit": FREE_STUDENT_LIMIT,
     "is_super_admin": False,
+    "preview_institute_id": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -715,6 +716,47 @@ st.markdown(f"""
 def go_to(view: str):
     st.session_state.active_view = view
 
+def start_institute_preview(inst_id: int):
+    """Lets the Super Admin step into a specific institute's Admin/Teacher/Parent
+    desks — same views a real Admin of that institute would see."""
+    inst = get_institute(conn, inst_id)
+    st.session_state.preview_institute_id = inst_id
+    st.session_state.institute_id = inst_id
+    if inst:
+        st.session_state.institute_name = inst["name"]
+        st.session_state.institute_plan = inst["plan"]
+        st.session_state.student_limit = inst["student_limit"]
+    st.session_state.active_view = "Admin"
+
+def exit_institute_preview():
+    st.session_state.preview_institute_id = None
+    st.session_state.institute_id = None
+    st.session_state.institute_name = None
+    st.session_state.institute_plan = "Free"
+    st.session_state.student_limit = FREE_STUDENT_LIMIT
+    st.session_state.active_view = "SuperAdmin"
+
+def is_previewing_institute() -> bool:
+    return bool(st.session_state.get("is_super_admin")) and st.session_state.get("preview_institute_id") is not None
+
+def render_preview_banner():
+    """Shown at the top of Admin/Teacher/Parent desks whenever a Super Admin
+    has stepped into an institute via 'Preview / Manage This Institute'."""
+    if not is_previewing_institute():
+        return
+    b_col1, b_col2 = st.columns([3, 1])
+    with b_col1:
+        st.markdown(f"""
+        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: 10px; padding: 10px 16px; margin-bottom: 10px;">
+            <strong style="color:#f59e0b;">👁️ Super Admin Preview</strong>
+            <span style="color:#e2e8f0;"> — Managing <strong>{st.session_state.get('institute_name', 'this institute')}</strong> on their behalf.</span>
+        </div>
+        """, unsafe_allow_html=True)
+    with b_col2:
+        if st.button("⬅ Back to Super Admin", use_container_width=True, key=f"exit_preview_{st.session_state.get('active_view')}"):
+            exit_institute_preview()
+            st.rerun()
+
 def render_header(title: str, subtitle: str, size: int = 48):
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
@@ -727,7 +769,9 @@ def render_header(title: str, subtitle: str, size: int = 48):
     """, unsafe_allow_html=True)
 
 def render_admin_quick_nav(current: str):
-    if st.session_state.get("logged_in_role") != "Admin" or st.session_state.get("is_super_admin"):
+    is_super = st.session_state.get("is_super_admin")
+    previewing = is_previewing_institute()
+    if not previewing and (st.session_state.get("logged_in_role") != "Admin" or is_super):
         return
     labels = {
         "Admin": "⬅ Return to Admin Console",
@@ -849,6 +893,7 @@ def show_login():
 
 def show_teacher_dashboard():
     institute_id = st.session_state.get("institute_id")
+    render_preview_banner()
     render_admin_quick_nav("Teacher")
     render_header("Tuition Operations Console", "Teacher Desk • Operations Console")
 
@@ -1225,9 +1270,12 @@ def render_child_card(child: dict, institute_id: int):
 
 def show_parent_dashboard():
     institute_id = st.session_state.get("institute_id")
+    render_preview_banner()
     render_admin_quick_nav("Parent")
 
-    is_admin_viewing = st.session_state.get("logged_in_role") == "Admin" and not st.session_state.get("is_super_admin")
+    is_admin_viewing = (
+        st.session_state.get("logged_in_role") == "Admin" and not st.session_state.get("is_super_admin")
+    ) or is_previewing_institute()
     parent_email = st.session_state.get("user_email", "")
 
     if is_admin_viewing:
@@ -1277,6 +1325,7 @@ def show_parent_dashboard():
 def show_admin_dashboard():
     institute_id = st.session_state.get("institute_id")
     institute_name = st.session_state.get("institute_name") or "Your Academy"
+    render_preview_banner()
     render_header("Admin Master Console", f"{institute_name} • Executive Management")
 
     render_plan_banner(institute_id)
@@ -1504,6 +1553,10 @@ def show_super_admin_dashboard():
                 with i_col3:
                     st.write(f"**Created:** {inst.get('created_at', '—')}")
 
+                if st.button("👀 Preview / Manage This Institute", key=f"preview_inst_{inst['id']}", use_container_width=True):
+                    start_institute_preview(inst["id"])
+                    st.rerun()
+
                 new_plan = st.selectbox(
                     "Change Plan",
                     ["Free", "Premium"],
@@ -1551,9 +1604,13 @@ if not st.session_state.get("logged_in", False):
 else:
     logged_role = st.session_state.get("logged_in_role", "Teacher")
     is_super = bool(st.session_state.get("is_super_admin"))
+    previewing = is_previewing_institute()
 
-    if is_super:
+    if is_super and not previewing:
         st.session_state.active_view = "SuperAdmin"
+    elif is_super and previewing:
+        if st.session_state.get("active_view") not in ("Admin", "Teacher", "Parent"):
+            st.session_state.active_view = "Admin"
     elif logged_role != "Admin":
         st.session_state.active_view = logged_role
     elif st.session_state.get("active_view") not in ("Admin", "Teacher", "Parent"):
@@ -1570,7 +1627,12 @@ else:
             st.rerun()
 
     with st.sidebar:
-        role_label = "Super Admin" if is_super else logged_role
+        if is_super and previewing:
+            role_label = "Super Admin (Preview)"
+        elif is_super:
+            role_label = "Super Admin"
+        else:
+            role_label = logged_role
         st.markdown(f"""
         <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
             <div style="display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%); color: #ffffff; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 8px;">
@@ -1580,10 +1642,10 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-        if not is_super and st.session_state.get("institute_name"):
+        if (not is_super or previewing) and st.session_state.get("institute_name"):
             st.caption(f"🏫 {st.session_state.get('institute_name')} • {st.session_state.get('institute_plan', 'Free')} Plan")
 
-        if logged_role == "Admin" and not is_super:
+        if (logged_role == "Admin" and not is_super) or previewing:
             st.markdown("### 🛠️ Admin Navigation")
             pages = ["Admin", "Teacher", "Parent"]
             current_idx = pages.index(st.session_state.active_view)
@@ -1598,6 +1660,11 @@ else:
                 key="admin_sidebar_nav",
                 on_change=sync_sidebar_desk
             )
+
+        if previewing:
+            if st.button("⬅ Back to Super Admin", key="sidebar_exit_preview_btn", use_container_width=True):
+                exit_institute_preview()
+                st.rerun()
 
         if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
             st.session_state.clear()
