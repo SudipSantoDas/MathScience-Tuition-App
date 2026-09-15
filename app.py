@@ -32,6 +32,103 @@ SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "owner@platform.com")
 SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "owner123")
 
 # ----------------------------------------------------
+# 1B. TURSO (REMOTE, PERSISTENT DATABASE) CONFIGURATION
+# ----------------------------------------------------
+# If these two secrets are set (Streamlit Cloud -> Settings -> Secrets), the
+# app stores everything in a real hosted Turso database instead of a local
+# SQLite file that can be wiped whenever the container restarts. If they are
+# NOT set, the app falls back to the old local-file behavior automatically —
+# nothing breaks, it's just not durable across restarts.
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+USE_TURSO = bool(TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
+
+# ----------------------------------------------------
+# 1C. TURSO COMPATIBILITY LAYER
+# ----------------------------------------------------
+# Every function in this file was written against the plain sqlite3 API
+# (conn.execute(...).fetchone(), row["col"], dict(row), etc). Rather than
+# rewrite all of that, these thin wrappers make a remote libSQL connection
+# quack like a sqlite3 connection, so nothing below this section needs to
+# know or care which backend it's actually talking to.
+
+class _CompatRow:
+    """Makes a plain tuple row support row['col'] and dict(row), like sqlite3.Row."""
+    def __init__(self, columns, values):
+        self._columns = columns
+        self._values = list(values)
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self._values[self._columns.index(key)]
+        return self._values[key]
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except (ValueError, IndexError):
+            return default
+
+    def keys(self):
+        return list(self._columns)
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+class _CompatCursor:
+    def __init__(self, raw_cursor):
+        self._raw = raw_cursor
+
+    def _columns(self):
+        desc = getattr(self._raw, "description", None)
+        return [d[0] for d in desc] if desc else []
+
+    def _wrap(self, row):
+        if row is None:
+            return None
+        return _CompatRow(self._columns(), row)
+
+    def fetchone(self):
+        row = self._raw.fetchone()
+        return self._wrap(row)
+
+    def fetchall(self):
+        return [self._wrap(r) for r in self._raw.fetchall()]
+
+class _TursoConnWrapper:
+    """Wraps a raw libsql connection so it behaves like sqlite3.Connection
+    for every call pattern used elsewhere in this file."""
+    def __init__(self, raw_conn):
+        self._raw = raw_conn
+
+    def execute(self, sql, params=()):
+        cur = self._raw.execute(sql, params)
+        return _CompatCursor(cur)
+
+    def executemany(self, sql, seq_of_params):
+        for params in seq_of_params:
+            self._raw.execute(sql, params)
+
+    def executescript(self, script: str):
+        # libSQL's remote client doesn't support multi-statement scripts the
+        # way sqlite3 does, so split on ';' and run each statement alone.
+        # Safe here because our schema statements never contain a literal
+        # semicolon inside a string value.
+        for statement in script.split(";"):
+            statement = statement.strip()
+            if statement:
+                self._raw.execute(statement)
+
+    def commit(self):
+        try:
+            self._raw.commit()
+        except Exception:
+            pass  # some libsql modes auto-commit; ignore if commit() isn't needed/available
+
+# ----------------------------------------------------
 # 2. PASSWORD HASHING
 # ----------------------------------------------------
 # PBKDF2-HMAC-SHA256 with a per-user random salt (stdlib only, no extra deps).
@@ -57,20 +154,34 @@ def verify_password(password: str, stored: str) -> bool:
 
 @st.cache_resource
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    if USE_TURSO:
+        import libsql
+        raw_conn = libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
+        conn = _TursoConnWrapper(raw_conn)
+        _create_schema(conn)
+        _ensure_multitenancy_columns(conn)
+        _migrate_local_file_into_turso_if_needed(conn)
+    else:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        _create_schema(conn)
     init_db(conn)
     return conn
 
-def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: str):
-    """Adds a column to an existing table if it isn't there yet (simple migration helper)."""
-    existing_cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-    if column not in existing_cols:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
-        conn.commit()
+def _ensure_column(conn, table: str, column: str, coltype: str):
+    """Adds a column to an existing table if it isn't there yet (simple migration helper).
+    Wrapped in try/except because PRAGMA support can vary on a remote backend —
+    if this can't be checked, we skip rather than crash the whole app."""
+    try:
+        existing_cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+        if column not in existing_cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+            conn.commit()
+    except Exception as e:
+        st.warning(f"Could not verify/add column '{column}' on '{table}': {e}")
 
-def init_db(conn: sqlite3.Connection):
-    # ---- Base schema (unchanged shape from the single-academy version) ----
+def _create_schema(conn):
+    """Creates every table if it doesn't already exist. Safe to call repeatedly."""
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS institutes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,11 +241,12 @@ def init_db(conn: sqlite3.Connection):
     """)
     conn.commit()
 
-    # Migration for databases created before student_id existed on financial_records.
+def _ensure_multitenancy_columns(conn):
+    """Adds the institute_id / is_super_admin columns to every table. Safe to
+    call repeatedly (no-op once columns exist). Must run on the TARGET
+    database before any row copy that includes these columns — otherwise
+    the copy fails because the destination table doesn't have them yet."""
     _ensure_column(conn, "financial_records", "student_id", "TEXT")
-
-    # ---- Multi-tenancy migration: add institute_id (and super-admin flag)
-    # to every table that used to implicitly belong to "the one academy". ----
     _ensure_column(conn, "users", "institute_id", "INTEGER")
     _ensure_column(conn, "users", "is_super_admin", "INTEGER DEFAULT 0")
     _ensure_column(conn, "students", "institute_id", "INTEGER")
@@ -143,6 +255,65 @@ def init_db(conn: sqlite3.Connection):
     _ensure_column(conn, "payment_status", "institute_id", "INTEGER")
     _ensure_column(conn, "financial_records", "institute_id", "INTEGER")
     _ensure_column(conn, "notices", "institute_id", "INTEGER")
+
+def _migrate_local_file_into_turso_if_needed(turso_conn):
+    """One-time safety net: if this is the first time we're connecting to
+    Turso and a real local academy.db file exists on this machine (from
+    before the Turso switch), copy every row across so nothing is lost.
+    Does nothing if Turso already has institutes (already migrated), or if
+    there's no local file to copy from."""
+    if not os.path.exists(DB_PATH):
+        return
+
+    try:
+        existing = turso_conn.execute("SELECT COUNT(*) FROM institutes").fetchone()
+        if existing and existing[0] > 0:
+            return  # Turso already has data — never overwrite it
+    except Exception:
+        pass  # institutes table may not exist yet on a brand new Turso db; continue
+
+    try:
+        local = sqlite3.connect(DB_PATH)
+        local.row_factory = sqlite3.Row
+    except Exception:
+        return
+
+    tables = ["institutes", "users", "students", "classrooms", "attendance",
+              "payment_status", "financial_records", "notices"]
+    copied_any = False
+    for table in tables:
+        try:
+            cols_info = local.execute(f"PRAGMA table_info({table})").fetchall()
+            if not cols_info:
+                continue
+            col_names = [c["name"] for c in cols_info]
+            rows = local.execute(f"SELECT * FROM {table}").fetchall()
+            placeholders = ",".join("?" for _ in col_names)
+            col_list = ",".join(col_names)
+            for row in rows:
+                values = tuple(row[c] for c in col_names)
+                turso_conn.execute(
+                    f"INSERT OR IGNORE INTO {table}({col_list}) VALUES ({placeholders})",
+                    values,
+                )
+                copied_any = True
+        except Exception as e:
+            st.warning(f"Could not migrate table '{table}' to Turso: {e}")
+
+    turso_conn.commit()
+    local.close()
+    if copied_any:
+        st.success("✅ Existing local data was migrated into your Turso database.")
+
+def _last_insert_id(conn) -> int:
+    """Works the same whether conn is a plain sqlite3 connection or the Turso
+    wrapper — avoids relying on cursor.lastrowid, which the Turso wrapper's
+    cursor doesn't provide."""
+    row = conn.execute("SELECT last_insert_rowid()").fetchone()
+    return row[0] if row else None
+
+def init_db(conn):
+    _ensure_multitenancy_columns(conn)
 
     # ---- Safety net: if this is an existing single-academy database (rows
     # exist with institute_id still NULL), fold ALL of that real data into
@@ -171,7 +342,7 @@ def init_db(conn: sqlite3.Connection):
                 "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
                 ("My Academy", owner_email, "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
             )
-            legacy_institute_id = cur.lastrowid
+            legacy_institute_id = _last_insert_id(conn)
 
         conn.execute(
             "UPDATE users SET institute_id=? WHERE institute_id IS NULL AND (is_super_admin IS NULL OR is_super_admin=0)",
@@ -188,7 +359,7 @@ def init_db(conn: sqlite3.Connection):
             "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
             ("Demo Academy", "admin@academy.com", "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
         )
-        demo_institute_id = cur.lastrowid
+        demo_institute_id = _last_insert_id(conn)
 
         conn.execute(
             "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
@@ -299,7 +470,7 @@ def create_institute_and_admin(conn, institute_name: str, owner_email: str, pass
         "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
         (institute_name, owner_email, "Free", FREE_STUDENT_LIMIT, datetime.date.today().strftime("%Y-%m-%d")),
     )
-    institute_id = cur.lastrowid
+    institute_id = _last_insert_id(conn)
     conn.execute(
         "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
         (owner_email, hash_password(password), "Admin", institute_id),
