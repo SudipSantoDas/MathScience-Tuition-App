@@ -255,6 +255,7 @@ def _ensure_multitenancy_columns(conn):
     _ensure_column(conn, "payment_status", "institute_id", "INTEGER")
     _ensure_column(conn, "financial_records", "institute_id", "INTEGER")
     _ensure_column(conn, "notices", "institute_id", "INTEGER")
+    _ensure_column(conn, "notices", "target_grade", "TEXT")
 
 def _migrate_local_file_into_turso_if_needed(turso_conn):
     """One-time safety net: if this is the first time we're connecting to
@@ -672,15 +673,27 @@ def list_financial_records(conn, institute_id: int, student_id: str | None = Non
 
 # ---- Notices ----
 
-def list_notices(conn, institute_id: int):
-    return [dict(r) for r in conn.execute(
-        "SELECT * FROM notices WHERE institute_id=? ORDER BY id DESC", (institute_id,)
-    ).fetchall()]
+def list_notices(conn, institute_id: int, grade: str | None = None):
+    """If grade is given, returns notices aimed at that grade PLUS any
+    'All Classes' notices (target_grade IS NULL/empty). If grade is None,
+    returns everything (used on the Teacher's own Notice Board view)."""
+    if grade:
+        rows = conn.execute(
+            """SELECT * FROM notices
+               WHERE institute_id=? AND (target_grade IS NULL OR target_grade='' OR target_grade=?)
+               ORDER BY id DESC""",
+            (institute_id, grade),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM notices WHERE institute_id=? ORDER BY id DESC", (institute_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
-def add_notice(conn, institute_id: int, title, body, priority, date_str):
+def add_notice(conn, institute_id: int, title, body, priority, date_str, target_grade: str | None = None):
     conn.execute(
-        "INSERT INTO notices(title, body, priority, date, institute_id) VALUES (?,?,?,?,?)",
-        (title, body, priority, date_str, institute_id),
+        "INSERT INTO notices(title, body, priority, date, institute_id, target_grade) VALUES (?,?,?,?,?,?)",
+        (title, body, priority, date_str, institute_id, target_grade or None),
     )
     conn.commit()
 
@@ -1343,15 +1356,25 @@ def show_teacher_dashboard():
     with tab_notices:
         st.subheader("📢 Academy Notice Board")
 
+        registered_grades_for_notices = sorted(list(set(
+            s.get("grade", "").strip() for s in list_students(conn, institute_id) if s.get("grade")
+        )))
+
         with st.expander("➕ Broadcast New Announcement", expanded=False):
             with st.form("new_notice_form", clear_on_submit=True):
                 n_title = st.text_input("Announcement Title", placeholder="e.g., Weekly Test Schedule / Holiday")
                 n_body = st.text_area("Message / Details", placeholder="Write the announcement details here...")
                 n_priority = st.selectbox("Priority Level", ["Normal", "Urgent", "Exam/Test"])
+                n_target_grade = st.selectbox(
+                    "Send To",
+                    options=["All Classes"] + registered_grades_for_notices,
+                    help="Pick a specific class so only students (and their parents) in that class see it, or leave as All Classes."
+                )
 
                 if st.form_submit_button("Publish Announcement", use_container_width=True):
                     if n_title.strip() and n_body.strip():
-                        add_notice(conn, institute_id, n_title.strip(), n_body.strip(), n_priority, datetime.date.today().strftime("%d %b %Y"))
+                        target = None if n_target_grade == "All Classes" else n_target_grade
+                        add_notice(conn, institute_id, n_title.strip(), n_body.strip(), n_priority, datetime.date.today().strftime("%d %b %Y"), target)
                         st.success("Notice published successfully!")
                         st.rerun()
                     else:
@@ -1361,6 +1384,7 @@ def show_teacher_dashboard():
         if notices:
             for notice in notices:
                 border_color = "#ef4444" if notice["priority"] == "Urgent" else ("#f59e0b" if notice["priority"] == "Exam/Test" else "#38bdf8")
+                target_label = notice.get("target_grade") or "All Classes"
                 st.markdown(f"""
                 <div style="background-color: #1e293b; border-left: 4px solid {border_color}; border-radius: 8px; padding: 12px 16px; margin: 10px 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1368,6 +1392,7 @@ def show_teacher_dashboard():
                         <span style="color: #94a3b8; font-size: 12px;">{notice['date']}</span>
                     </div>
                     <p style="color: #cbd5e1; font-size: 14px; margin: 8px 0 0 0; line-height: 1.4;">{notice['body']}</p>
+                    <span style="display: inline-block; margin-top: 8px; background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 10px;">{target_label}</span>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -1435,9 +1460,7 @@ def render_child_card(child: dict, institute_id: int):
                 st.info("No recorded transactions yet for this student.")
 
     with st.expander(f"📢 Notices for {child.get('grade', 'this class')}", expanded=False):
-        # Notice board isn't tagged by class today, so this shows all academy
-        # notices for now — swap in a grade filter once notices carry one.
-        notices = list_notices(conn, institute_id)
+        notices = list_notices(conn, institute_id, grade=child.get("grade"))
         if notices:
             for n in notices:
                 border_color = "#ef4444" if n["priority"] == "Urgent" else ("#f59e0b" if n["priority"] == "Exam/Test" else "#38bdf8")
