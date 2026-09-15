@@ -671,6 +671,47 @@ def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email
     conn.commit()
     return new_id
 
+def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
+    """Inserts many students in one pass for CSV import. Each row needs at
+    least a 'name'; grade/subject/fee/parent_email are optional and default
+    the same way the single-add form does. Computes the starting ID once and
+    increments locally instead of re-querying MAX() per row, then commits
+    once at the end — much cheaper than calling add_student() in a loop,
+    especially over the network on Turso. Returns the number of rows inserted."""
+    if not rows:
+        return 0
+    row = conn.execute(
+        "SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%' AND institute_id=?",
+        (institute_id,),
+    ).fetchone()
+    next_num = (row[0] if row and row[0] is not None else 100) + 1
+    inserted = 0
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        if not name:
+            continue
+        new_id = f"STU{institute_id}{next_num}"
+        next_num += 1
+        try:
+            fee_val = int(float(r.get("fee") or 0))
+        except (ValueError, TypeError):
+            fee_val = 0
+        conn.execute(
+            "INSERT INTO students(id, name, grade, subject, fee, parent_email, institute_id) VALUES (?,?,?,?,?,?,?)",
+            (
+                new_id,
+                name,
+                (r.get("grade") or "General").strip() or "General",
+                (r.get("subject") or "General").strip() or "General",
+                fee_val,
+                (r.get("parent_email") or "").strip().lower() or None,
+                institute_id,
+            ),
+        )
+        inserted += 1
+    conn.commit()
+    return inserted
+
 def delete_student(conn, institute_id: int, student_id: str, actor_email: str = ""):
     """Soft-deletes the student: hides them from every roster/attendance/fee
     view, but keeps the underlying row (and their attendance + payment
@@ -876,6 +917,22 @@ def logo_img_tag(size=48):
         f'style="width: {size}px; height: {size}px; border-radius: 12px; '
         f'border: 1.5px solid #38bdf8; object-fit: cover;" />'
     )
+
+def filter_students(students: list[dict], query: str) -> list[dict]:
+    """Case-insensitive substring match across name, ID, grade, subject, and
+    parent email — good enough for finding one kid in a roster of hundreds
+    without needing a real search index."""
+    q = (query or "").strip().lower()
+    if not q:
+        return students
+    return [
+        s for s in students
+        if q in str(s.get("name", "")).lower()
+        or q in str(s.get("id", "")).lower()
+        or q in str(s.get("grade", "")).lower()
+        or q in str(s.get("subject", "")).lower()
+        or q in str(s.get("parent_email", "") or "").lower()
+    ]
 
 def rows_to_csv_bytes(rows: list[dict]) -> bytes:
     """Turns a list of dicts (as returned by list_students / list_financial_records)
@@ -1161,6 +1218,60 @@ def refresh_institute_session(institute_id: int):
         st.session_state.institute_plan = inst["plan"]
         st.session_state.student_limit = inst["student_limit"]
 
+def render_csv_import_widget(institute_id: int, key_prefix: str):
+    """Shared bulk-import widget used from both the Teacher Desk and Admin
+    Console. Expects a CSV with a 'name' column (required) and optional
+    'grade', 'subject', 'fee', 'parent_email' columns — same fields as the
+    single-student form, just many rows at once. Shows a preview and the
+    Free-plan capacity check before anything is actually inserted."""
+    st.caption("CSV columns: **name** (required), grade, subject, fee, parent_email (all optional).")
+    uploaded = st.file_uploader("Choose a CSV file", type=["csv"], key=f"{key_prefix}_csv_uploader")
+    if not uploaded:
+        return
+
+    try:
+        text = uploaded.getvalue().decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(text))
+        # Normalize header names (case/whitespace-insensitive) so "Name" or
+        # " Fee " in someone's spreadsheet export still matches.
+        parsed_rows = []
+        for raw_row in reader:
+            norm_row = {(k or "").strip().lower(): v for k, v in raw_row.items()}
+            parsed_rows.append(norm_row)
+    except Exception as e:
+        st.error(f"Couldn't read that CSV: {e}")
+        return
+
+    valid_rows = [r for r in parsed_rows if (r.get("name") or "").strip()]
+    skipped = len(parsed_rows) - len(valid_rows)
+
+    if not valid_rows:
+        st.warning("No valid rows found — make sure the CSV has a 'name' column.")
+        return
+
+    st.write(f"Found **{len(valid_rows)}** student(s) to import" + (f" ({skipped} row(s) skipped — missing name)" if skipped else "") + ":")
+    st.dataframe(valid_rows[:20], use_container_width=True, hide_index=True)
+    if len(valid_rows) > 20:
+        st.caption(f"…and {len(valid_rows) - 20} more.")
+
+    plan = st.session_state.get("institute_plan", "Free")
+    if plan != "Premium":
+        limit = st.session_state.get("student_limit", FREE_STUDENT_LIMIT)
+        current = count_students(conn, institute_id)
+        if current + len(valid_rows) > limit:
+            st.error(
+                f"This import would bring you to {current + len(valid_rows)} students, "
+                f"over the Free plan limit of {limit}. Ask the platform owner to upgrade to Premium first, "
+                f"or trim the CSV."
+            )
+            return
+
+    if st.button(f"✅ Import {len(valid_rows)} Student(s)", use_container_width=True, key=f"{key_prefix}_confirm_import"):
+        inserted = bulk_add_students(conn, institute_id, valid_rows)
+        log_audit_event(conn, st.session_state.get("user_email", ""), "bulk_import", f"Imported {inserted} students via CSV", institute_id)
+        st.success(f"Imported {inserted} student(s) successfully!")
+        st.rerun()
+
 # ----------------------------------------------------
 # 8. VIEW: LOGIN / SIGNUP
 # ----------------------------------------------------
@@ -1319,12 +1430,21 @@ def show_teacher_dashboard():
         st.subheader("Academy Student Roster")
         all_students = list_students(conn, institute_id)
 
+        roster_search = st.text_input(
+            "🔎 Search roster", placeholder="Search by name, ID, grade, subject, or parent email…",
+            key="teacher_roster_search"
+        )
+        displayed_students = filter_students(all_students, roster_search)
+
         if all_students:
-            st.dataframe(all_students, use_container_width=True, hide_index=True)
-            st.download_button(
-                "⬇️ Export Roster (CSV)", rows_to_csv_bytes(all_students),
-                file_name="roster.csv", mime="text/csv", key="teacher_export_roster"
-            )
+            if roster_search and not displayed_students:
+                st.warning("No students match that search.")
+            elif displayed_students:
+                st.dataframe(displayed_students, use_container_width=True, hide_index=True)
+                st.download_button(
+                    "⬇️ Export Roster (CSV)", rows_to_csv_bytes(displayed_students),
+                    file_name="roster.csv", mime="text/csv", key="teacher_export_roster"
+                )
         else:
             st.info("No students added yet. Use the form below to register your first student.")
 
@@ -1364,6 +1484,9 @@ def show_teacher_dashboard():
                             st.rerun()
                     else:
                         st.warning("Please enter student name.")
+
+        with st.expander("📥 Bulk Import Students (CSV)", expanded=False):
+            render_csv_import_widget(institute_id, key_prefix="teacher")
 
         with st.expander("🔗 Link / Update Parent Email", expanded=False):
             if all_students:
@@ -1759,12 +1882,21 @@ def show_admin_dashboard():
     st.write("---")
     st.subheader("🧑‍🎓 Manage Students")
 
+    admin_roster_search = st.text_input(
+        "🔎 Search roster", placeholder="Search by name, ID, grade, subject, or parent email…",
+        key="admin_roster_search"
+    )
+    admin_displayed_students = filter_students(all_students, admin_roster_search)
+
     if all_students:
-        st.dataframe(all_students, use_container_width=True, hide_index=True)
-        st.download_button(
-            "⬇️ Export Roster (CSV)", rows_to_csv_bytes(all_students),
-            file_name=f"{institute_name}_roster.csv", mime="text/csv", key="admin_export_roster"
-        )
+        if admin_roster_search and not admin_displayed_students:
+            st.warning("No students match that search.")
+        elif admin_displayed_students:
+            st.dataframe(admin_displayed_students, use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Export Roster (CSV)", rows_to_csv_bytes(admin_displayed_students),
+                file_name=f"{institute_name}_roster.csv", mime="text/csv", key="admin_export_roster"
+            )
     else:
         st.info("No student records available.")
 
@@ -1798,6 +1930,9 @@ def show_admin_dashboard():
                         st.rerun()
                 else:
                     st.warning("Please enter student name.")
+
+    with st.expander("📥 Bulk Import Students (CSV)", expanded=False):
+        render_csv_import_widget(institute_id, key_prefix="admin")
 
     with st.expander("✏️ Edit Student", expanded=False):
         if all_students:
