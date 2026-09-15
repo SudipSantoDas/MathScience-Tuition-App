@@ -797,6 +797,18 @@ def render_plan_banner(institute_id: int):
     </div>
     """, unsafe_allow_html=True)
 
+def refresh_institute_session(institute_id: int):
+    """Re-reads plan/limit from the DB into session_state on every dashboard
+    load, so a Super Admin flipping someone to Premium takes effect on their
+    very next click instead of requiring them to log out and back in."""
+    if not institute_id:
+        return
+    inst = get_institute(conn, institute_id)
+    if inst:
+        st.session_state.institute_name = inst["name"]
+        st.session_state.institute_plan = inst["plan"]
+        st.session_state.student_limit = inst["student_limit"]
+
 # ----------------------------------------------------
 # 8. VIEW: LOGIN / SIGNUP
 # ----------------------------------------------------
@@ -882,6 +894,7 @@ def show_login():
 
 def show_teacher_dashboard():
     institute_id = st.session_state.get("institute_id")
+    refresh_institute_session(institute_id)
     render_admin_quick_nav("Teacher")
     render_header("Tuition Operations Console", "Teacher Desk • Operations Console")
 
@@ -1038,19 +1051,30 @@ def show_teacher_dashboard():
 
         col_a, col_b = st.columns(2)
         with col_a:
-            mark_all = st.button("✅ Mark All Present", use_container_width=True, key="mark_all_btn")
+            if st.button("✅ Mark All Present", use_container_width=True, key="mark_all_btn"):
+                st.session_state.att_mark_default = True
+                st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
         with col_b:
-            clear_all = st.button("⭕ Clear All", use_container_width=True, key="clear_all_btn")
+            if st.button("⭕ Clear All", use_container_width=True, key="clear_all_btn"):
+                st.session_state.att_mark_default = False
+                st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
+
+        if "att_mark_default" not in st.session_state:
+            st.session_state.att_mark_default = True
+        batch_stamp = st.session_state.get("att_batch_stamp", 0)
 
         attendance_status = {}
         st.write("---")
         for s in active_roster:
             s_id = s["id"]
-            default_val = False if clear_all else True
+            # Including batch_stamp in the key forces a brand-new checkbox
+            # widget whenever Mark All/Clear All is clicked — otherwise
+            # Streamlit remembers the checkbox's own prior state and ignores
+            # the value= we pass in, so the buttons would silently do nothing.
             attendance_status[s_id] = st.checkbox(
                 f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
-                value=default_val,
-                key=f"att_check_{s_id}_{today_str}"
+                value=st.session_state.att_mark_default,
+                key=f"att_check_{s_id}_{today_str}_{batch_stamp}"
             )
 
         if st.button("Submit Attendance Register", use_container_width=True, key="submit_att_btn"):
@@ -1311,6 +1335,7 @@ def show_parent_dashboard():
 
 def show_admin_dashboard():
     institute_id = st.session_state.get("institute_id")
+    refresh_institute_session(institute_id)
     institute_name = st.session_state.get("institute_name") or "Your Academy"
     render_header("Admin Master Console", f"{institute_name} • Executive Management")
 
