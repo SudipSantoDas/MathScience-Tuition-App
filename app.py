@@ -5,6 +5,7 @@ import secrets
 import datetime
 import os
 import base64
+import html
 
 # ----------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -30,6 +31,13 @@ FREE_STUDENT_LIMIT = 15
 # these env vars won't touch an already-seeded account on later restarts.
 SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "owner@platform.com")
 SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "owner123")
+
+# Set SHOW_DEMO_CREDENTIALS=false in production deploys to hide the demo
+# login hints on the public login screen (they're handy for local dev only).
+SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "true").strip().lower() != "false"
+
+# Minimum acceptable password length, enforced everywhere a password is set.
+MIN_PASSWORD_LENGTH = 8
 
 # ----------------------------------------------------
 # 1B. TURSO (REMOTE, PERSISTENT DATABASE) CONFIGURATION
@@ -125,8 +133,11 @@ class _TursoConnWrapper:
     def commit(self):
         try:
             self._raw.commit()
-        except Exception:
-            pass  # some libsql modes auto-commit; ignore if commit() isn't needed/available
+        except Exception as e:
+            # Some libsql modes auto-commit and don't support commit() at all —
+            # that case is fine to ignore. But a genuine write failure here
+            # would otherwise vanish silently, so at least surface it.
+            st.warning(f"Database commit warning: {e}")
 
 # ----------------------------------------------------
 # 2. PASSWORD HASHING
@@ -146,6 +157,9 @@ def verify_password(password: str, stored: str) -> bool:
     except ValueError:
         return False
     return secrets.compare_digest(hash_password(password, salt_hex), stored)
+
+def is_password_strong_enough(password: str) -> bool:
+    return bool(password) and len(password) >= MIN_PASSWORD_LENGTH
 
 # ----------------------------------------------------
 # 3. DATABASE LAYER (SQLite — persists on disk, shared across everyone
@@ -467,15 +481,28 @@ def delete_teacher_account(conn, institute_id: int, email: str):
 # ---- Institutes (multi-tenancy) ----
 
 def create_institute_and_admin(conn, institute_name: str, owner_email: str, password: str):
+    """Raises sqlite3.IntegrityError (or the Turso backend's equivalent) if
+    owner_email is already registered — callers must catch broadly, since the
+    remote Turso client does not necessarily raise sqlite3.IntegrityError."""
+    existing = conn.execute("SELECT 1 FROM users WHERE email=?", (owner_email,)).fetchone()
+    if existing:
+        raise ValueError("An account with that email already exists.")
     cur = conn.execute(
         "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
         (institute_name, owner_email, "Free", FREE_STUDENT_LIMIT, datetime.date.today().strftime("%Y-%m-%d")),
     )
     institute_id = _last_insert_id(conn)
-    conn.execute(
-        "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
-        (owner_email, hash_password(password), "Admin", institute_id),
-    )
+    try:
+        conn.execute(
+            "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
+            (owner_email, hash_password(password), "Admin", institute_id),
+        )
+    except Exception:
+        # Someone else's signup won the race between our check and this
+        # insert — roll back the orphaned institute row we just created.
+        conn.execute("DELETE FROM institutes WHERE id=?", (institute_id,))
+        conn.commit()
+        raise ValueError("An account with that email already exists.")
     conn.commit()
     return institute_id
 
@@ -534,12 +561,17 @@ def list_students(conn, institute_id: int, parent_email: str | None = None):
     return [dict(r) for r in rows]
 
 def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email=None):
-    # Base the next ID on the highest STUxxx number ever used across the whole
-    # platform, not the current row count — using COUNT(*) breaks after a
-    # delete, since a freed-up count can regenerate an ID that's still taken.
-    row = conn.execute("SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%'").fetchone()
+    # Base the next ID on the highest STUxxx number ever used WITHIN THIS
+    # INSTITUTE, not the current row count (COUNT(*) breaks after a delete)
+    # and not a global platform-wide MAX (which would leak one institute's
+    # growth into another's numbering and force a full-table scan as the
+    # platform grows). Scoping to institute_id keeps this cheap and isolated.
+    row = conn.execute(
+        "SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%' AND institute_id=?",
+        (institute_id,),
+    ).fetchone()
     highest = row[0] if row and row[0] is not None else 100
-    new_id = f"STU{highest + 1}"
+    new_id = f"STU{institute_id}{highest + 1}"
     conn.execute(
         "INSERT INTO students(id, name, grade, subject, fee, parent_email, institute_id) VALUES (?,?,?,?,?,?,?)",
         (new_id, name, grade, subject, fee, parent_email or None, institute_id),
@@ -614,12 +646,17 @@ def get_payment_status(conn, institute_id: int, student_id: str) -> str:
     ).fetchone()
     return row["status"] if row else "Unpaid"
 
-def _next_tx_id(conn) -> str:
-    # Same "highest number used, not row count" logic as student IDs — avoids
-    # regenerating an already-used tx_id after older transactions are ever removed.
-    row = conn.execute("SELECT MAX(CAST(SUBSTR(tx_id, 4) AS INTEGER)) FROM financial_records WHERE tx_id LIKE 'TXN%'").fetchone()
+def _next_tx_id(conn, institute_id: int) -> str:
+    # Same "highest number used, not row count" logic as student IDs — scoped
+    # per institute for the same reasons (avoids leaking one institute's
+    # transaction volume into another's numbering, and avoids a growing
+    # platform-wide full-table scan on every fee update).
+    row = conn.execute(
+        "SELECT MAX(CAST(SUBSTR(tx_id, 4) AS INTEGER)) FROM financial_records WHERE tx_id LIKE 'TXN%' AND institute_id=?",
+        (institute_id,),
+    ).fetchone()
     highest = row[0] if row and row[0] is not None else 900
-    return f"TXN{highest + 1}"
+    return f"TXN{institute_id}{highest + 1}"
 
 def set_payment_status(conn, institute_id: int, student_id: str, status: str):
     previous_status = get_payment_status(conn, institute_id, student_id)
@@ -639,7 +676,7 @@ def set_payment_status(conn, institute_id: int, student_id: str, status: str):
             conn.execute(
                 "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method, institute_id) VALUES (?,?,?,?,?,?,?,?)",
                 (
-                    _next_tx_id(conn),
+                    _next_tx_id(conn, institute_id),
                     student["name"],
                     student_id,
                     datetime.date.today().strftime("%Y-%m-%d"),
@@ -731,6 +768,17 @@ def logo_img_tag(size=48):
         f'style="width: {size}px; height: {size}px; border-radius: 12px; '
         f'border: 1.5px solid #38bdf8; object-fit: cover;" />'
     )
+
+def esc(value) -> str:
+    """Escapes a value for safe interpolation into an unsafe_allow_html
+    string. Everything that ultimately comes from user input (student names,
+    notice titles/bodies, institute names, emails, grades, subjects, etc.)
+    must be passed through this before being dropped into an HTML template —
+    otherwise a value like '<img src=x onerror=alert(1)>' typed as a student
+    name or notice body would execute for whoever views that card."""
+    if value is None:
+        return ""
+    return html.escape(str(value), quote=True)
 
 # ----------------------------------------------------
 # 6. MASTER HIGH-CONTRAST CSS STYLING
@@ -937,8 +985,8 @@ def render_header(title: str, subtitle: str, size: int = 48):
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
         {logo_img_tag(size)}
         <div>
-            <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{title}</h2>
-            <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{subtitle}</p>
+            <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{esc(title)}</h2>
+            <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{esc(subtitle)}</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1040,13 +1088,14 @@ def show_login():
                 else:
                     st.error("Invalid email or password. Please verify credentials.")
 
-        with st.expander("Demo credentials", expanded=False):
-            st.caption(
-                "Admin: admin@academy.com / admin123  \n"
-                "Teacher: teacher@academy.com / teacher123  \n"
-                "Parent (Aarav's family): parent1@academy.com / parent123  \n"
-                "Parent (Rohan's family): parent2@academy.com / parent123"
-            )
+        if SHOW_DEMO_CREDENTIALS:
+            with st.expander("Demo credentials", expanded=False):
+                st.caption(
+                    "Admin: admin@academy.com / admin123  \n"
+                    "Teacher: teacher@academy.com / teacher123  \n"
+                    "Parent (Aarav's family): parent1@academy.com / parent123  \n"
+                    "Parent (Rohan's family): parent2@academy.com / parent123"
+                )
 
     with tab_signup:
         st.markdown("### Start your own tuition academy on this platform")
@@ -1055,20 +1104,22 @@ def show_login():
         with st.form("signup_form", clear_on_submit=True):
             s_institute = st.text_input("Institute / Academy Name", placeholder="e.g., Bright Minds Tuition")
             s_email = st.text_input("Your Email (this becomes your Admin login)", placeholder="owner@myacademy.com")
-            s_pass = st.text_input("Create Password", type="password")
+            s_pass = st.text_input("Create Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
 
             if st.form_submit_button("Create My Academy Account", use_container_width=True):
                 clean_s_email = s_email.strip().lower()
                 if s_institute.strip() and clean_s_email and s_pass.strip():
-                    existing = conn.execute("SELECT 1 FROM users WHERE email=?", (clean_s_email,)).fetchone()
-                    if existing:
-                        st.error("An account with that email already exists. Please log in instead.")
+                    if not is_password_strong_enough(s_pass):
+                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
-                        create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
-                        st.success(
-                            f"Account created! '{s_institute.strip()}' is live on the Free plan "
-                            f"(up to {FREE_STUDENT_LIMIT} students). Please log in above."
-                        )
+                        try:
+                            create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
+                            st.success(
+                                f"Account created! '{s_institute.strip()}' is live on the Free plan "
+                                f"(up to {FREE_STUDENT_LIMIT} students). Please log in above."
+                            )
+                        except (ValueError, sqlite3.IntegrityError):
+                            st.error("An account with that email already exists. Please log in instead.")
                 else:
                     st.warning("Please fill in all fields.")
 
@@ -1116,12 +1167,12 @@ def show_teacher_dashboard():
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                 <div>
                     <span style="color: #38bdf8; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Active Class:</span>
-                    <span style="color: #ffffff; font-weight: 700; font-size: 16px; margin-left: 6px;">{active_room['title']}</span>
+                    <span style="color: #ffffff; font-weight: 700; font-size: 16px; margin-left: 6px;">{esc(active_room['title'])}</span>
                 </div>
                 <div style="color: #cbd5e1; font-size: 14px;">
-                    Subject: <strong style="color: #38bdf8;">{active_room['subject']}</strong>
+                    Subject: <strong style="color: #38bdf8;">{esc(active_room['subject'])}</strong>
                     <span style="color: #64748b; margin: 0 6px;">•</span>
-                    Batch: <strong style="color: #f1f5f9;">{active_room['section']}</strong>
+                    Batch: <strong style="color: #f1f5f9;">{esc(active_room['section'])}</strong>
                 </div>
             </div>
         </div>
@@ -1305,7 +1356,7 @@ def show_teacher_dashboard():
                     with f_col1:
                         badge = "🟢 Paid" if current_val == "Paid" else "🔴 Unpaid"
                         st.markdown(
-                            f"**{student['name']}** ({student['grade']})<br>"
+                            f"**{esc(student['name'])}** ({esc(student['grade'])})<br>"
                             f"<span style='color:#94a3b8;'>Fee: ₹{student['fee']:,} • Status: {badge}</span>",
                             unsafe_allow_html=True
                         )
@@ -1388,11 +1439,11 @@ def show_teacher_dashboard():
                 st.markdown(f"""
                 <div style="background-color: #1e293b; border-left: 4px solid {border_color}; border-radius: 8px; padding: 12px 16px; margin: 10px 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <strong style="color: #ffffff; font-size: 16px;">{notice['title']}</strong>
-                        <span style="color: #94a3b8; font-size: 12px;">{notice['date']}</span>
+                        <strong style="color: #ffffff; font-size: 16px;">{esc(notice['title'])}</strong>
+                        <span style="color: #94a3b8; font-size: 12px;">{esc(notice['date'])}</span>
                     </div>
-                    <p style="color: #cbd5e1; font-size: 14px; margin: 8px 0 0 0; line-height: 1.4;">{notice['body']}</p>
-                    <span style="display: inline-block; margin-top: 8px; background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 10px;">{target_label}</span>
+                    <p style="color: #cbd5e1; font-size: 14px; margin: 8px 0 0 0; line-height: 1.4;">{esc(notice['body'])}</p>
+                    <span style="display: inline-block; margin-top: 8px; background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 10px;">{esc(target_label)}</span>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -1420,11 +1471,11 @@ def render_child_card(child: dict, institute_id: int):
     st.markdown(f"""
     <div style="background-color: #1e293b; border: 1.5px solid #334155; border-radius: 14px; padding: 18px; margin-top: 10px;">
         <h3 style="color: #ffffff; margin-top: 0; font-size: 18px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
-            {child_name} — Academic & Tuition Status
+            {esc(child_name)} — Academic & Tuition Status
         </h3>
         <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
-            Batch / Grade: <strong style="color: #38bdf8;">{child.get('grade')}</strong>
-            <span style="color: #64748b;">({child.get('subject', 'General')})</span>
+            Batch / Grade: <strong style="color: #38bdf8;">{esc(child.get('grade'))}</strong>
+            <span style="color: #64748b;">({esc(child.get('subject', 'General'))})</span>
         </p>
         <p style="color: #cbd5e1; margin: 10px 0; font-size: 15px;">
             Attendance Record: <strong style="color: #38bdf8;">{attendance_pct}%</strong>
@@ -1467,10 +1518,10 @@ def render_child_card(child: dict, institute_id: int):
                 st.markdown(f"""
                 <div style="background-color: #0f172a; border-left: 4px solid {border_color}; border-radius: 8px; padding: 10px 14px; margin: 8px 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <strong style="color: #ffffff; font-size: 14px;">{n['title']}</strong>
-                        <span style="color: #94a3b8; font-size: 11px;">{n['date']}</span>
+                        <strong style="color: #ffffff; font-size: 14px;">{esc(n['title'])}</strong>
+                        <span style="color: #94a3b8; font-size: 11px;">{esc(n['date'])}</span>
                     </div>
-                    <p style="color: #cbd5e1; font-size: 13px; margin: 6px 0 0 0; line-height: 1.4;">{n['body']}</p>
+                    <p style="color: #cbd5e1; font-size: 13px; margin: 6px 0 0 0; line-height: 1.4;">{esc(n['body'])}</p>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -1505,7 +1556,7 @@ def show_parent_dashboard():
         <div>
             <h2 style="margin: 0; font-size: 22px; color: #ffffff;">Parent Portal</h2>
             <p style="margin: 0; color: #94a3b8; font-size: 13px;">
-                {'Previewing as' if is_admin_viewing else 'Signed in as'} <strong style="color: #38bdf8;">{parent_email}</strong>
+                {'Previewing as' if is_admin_viewing else 'Signed in as'} <strong style="color: #38bdf8;">{esc(parent_email)}</strong>
             </p>
         </div>
     </div>
@@ -1649,7 +1700,7 @@ def show_admin_dashboard():
     with st.expander("➕ Create Parent Account", expanded=False):
         with st.form("create_parent_form", clear_on_submit=True):
             p_email = st.text_input("Parent Email", placeholder="parent@example.com")
-            p_pass = st.text_input("Temporary Password", type="password")
+            p_pass = st.text_input("Temporary Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
             p_children = st.multiselect(
                 "Link to Student(s)",
                 options=[s["name"] for s in all_students],
@@ -1658,16 +1709,19 @@ def show_admin_dashboard():
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_email = p_email.strip().lower()
                 if clean_email and p_pass.strip():
-                    try:
-                        create_parent_account(conn, institute_id, clean_email, p_pass)
-                        for name in p_children:
-                            match = next((s for s in all_students if s["name"] == name), None)
-                            if match:
-                                update_student_parent_email(conn, institute_id, match["id"], clean_email)
-                        st.success(f"Parent account created for {clean_email}.")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("An account with that email already exists.")
+                    if not is_password_strong_enough(p_pass):
+                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
+                    else:
+                        try:
+                            create_parent_account(conn, institute_id, clean_email, p_pass)
+                            for name in p_children:
+                                match = next((s for s in all_students if s["name"] == name), None)
+                                if match:
+                                    update_student_parent_email(conn, institute_id, match["id"], clean_email)
+                            st.success(f"Parent account created for {clean_email}.")
+                            st.rerun()
+                        except Exception:
+                            st.error("An account with that email already exists.")
                 else:
                     st.warning("Email and password are required.")
 
@@ -1693,16 +1747,19 @@ def show_admin_dashboard():
     with st.expander("➕ Create Teacher Account", expanded=False):
         with st.form("create_teacher_form", clear_on_submit=True):
             t_email = st.text_input("Teacher Email", placeholder="teacher.name@academy.com")
-            t_pass = st.text_input("Temporary Password", type="password", key="new_teacher_pass")
+            t_pass = st.text_input("Temporary Password", type="password", key="new_teacher_pass", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_t_email = t_email.strip().lower()
                 if clean_t_email and t_pass.strip():
-                    try:
-                        create_teacher_account(conn, institute_id, clean_t_email, t_pass)
-                        st.success(f"Teacher account created for {clean_t_email}.")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("An account with that email already exists.")
+                    if not is_password_strong_enough(t_pass):
+                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
+                    else:
+                        try:
+                            create_teacher_account(conn, institute_id, clean_t_email, t_pass)
+                            st.success(f"Teacher account created for {clean_t_email}.")
+                            st.rerun()
+                        except Exception:
+                            st.error("An account with that email already exists.")
                 else:
                     st.warning("Email and password are required.")
 
@@ -1789,8 +1846,8 @@ def show_super_admin_dashboard():
                 st.warning("Email and new password are both required.")
             elif not user_row:
                 st.error("No account found with that email.")
-            elif len(target_new_pw) < 8:
-                st.warning("New password should be at least 8 characters.")
+            elif not is_password_strong_enough(target_new_pw):
+                st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
             else:
                 update_password(conn, clean_target, target_new_pw)
                 role_label = "Super Admin" if user_row["is_super_admin"] else user_row["role"]
@@ -1811,8 +1868,8 @@ def show_super_admin_dashboard():
                 "SELECT password_hash FROM users WHERE email=?", (my_email,)
             ).fetchone()["password_hash"]):
                 st.error("Current password is incorrect.")
-            elif len(new_pw) < 8:
-                st.warning("New password should be at least 8 characters.")
+            elif not is_password_strong_enough(new_pw):
+                st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
             elif new_pw != confirm_pw:
                 st.warning("New password and confirmation don't match.")
             else:
@@ -1842,9 +1899,9 @@ else:
         st.markdown(f"""
         <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 16px; margin-bottom: 20px; text-align: center;">
             <div style="display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%); color: #ffffff; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 8px;">
-                {role_label} Mode
+                {esc(role_label)} Mode
             </div>
-            <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{st.session_state.get('user_email', '')}</p>
+            <p style="color: #cbd5e1; font-size: 13px; margin: 0; font-weight: 500;">{esc(st.session_state.get('user_email', ''))}</p>
         </div>
         """, unsafe_allow_html=True)
 
