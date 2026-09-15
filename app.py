@@ -6,6 +6,8 @@ import datetime
 import os
 import base64
 import html
+import csv
+import io
 
 # ----------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -252,6 +254,14 @@ def _create_schema(conn):
         priority TEXT,
         date TEXT
     );
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        actor_email TEXT,
+        action TEXT,
+        details TEXT,
+        institute_id INTEGER
+    );
     """)
     conn.commit()
 
@@ -270,6 +280,7 @@ def _ensure_multitenancy_columns(conn):
     _ensure_column(conn, "financial_records", "institute_id", "INTEGER")
     _ensure_column(conn, "notices", "institute_id", "INTEGER")
     _ensure_column(conn, "notices", "target_grade", "TEXT")
+    _ensure_column(conn, "students", "is_deleted", "INTEGER DEFAULT 0")
 
 def _migrate_local_file_into_turso_if_needed(turso_conn):
     """One-time safety net: if this is the first time we're connecting to
@@ -326,6 +337,34 @@ def _last_insert_id(conn) -> int:
     cursor doesn't provide."""
     row = conn.execute("SELECT last_insert_rowid()").fetchone()
     return row[0] if row else None
+
+def log_audit_event(conn, actor_email: str, action: str, details: str = "", institute_id: int | None = None):
+    """Records a Super-Admin-level action (plan change, password reset, etc.)
+    so there's a record of who did what and when if it's ever disputed.
+    Best-effort: an audit-log failure should never block the underlying
+    action, so this swallows its own errors rather than raising."""
+    try:
+        conn.execute(
+            "INSERT INTO audit_log(timestamp, actor_email, action, details, institute_id) VALUES (?,?,?,?,?)",
+            (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), actor_email, action, details, institute_id),
+        )
+        conn.commit()
+    except Exception as e:
+        st.warning(f"Could not record audit log entry: {e}")
+
+def list_audit_log(conn, institute_id: int | None = None, limit: int = 200):
+    """institute_id=None returns the full platform-wide log (Super Admin view).
+    Pass an institute_id to scope it to just that institute's own actions."""
+    if institute_id is not None:
+        rows = conn.execute(
+            "SELECT * FROM audit_log WHERE institute_id=? ORDER BY id DESC LIMIT ?",
+            (institute_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 def init_db(conn):
     _ensure_multitenancy_columns(conn)
@@ -516,20 +555,21 @@ def list_institutes(conn):
     for r in rows:
         d = dict(r)
         d["student_count"] = conn.execute(
-            "SELECT COUNT(*) FROM students WHERE institute_id=?", (d["id"],)
+            "SELECT COUNT(*) FROM students WHERE institute_id=? AND (is_deleted IS NULL OR is_deleted=0)", (d["id"],)
         ).fetchone()[0]
         result.append(d)
     return result
 
-def set_institute_plan(conn, institute_id: int, plan: str, student_limit: int):
+def set_institute_plan(conn, institute_id: int, plan: str, student_limit: int, actor_email: str = ""):
     conn.execute(
         "UPDATE institutes SET plan=?, student_limit=? WHERE id=?", (plan, student_limit, institute_id)
     )
     conn.commit()
+    log_audit_event(conn, actor_email, "plan_change", f"Set plan to {plan} (limit {student_limit})", institute_id)
 
 def count_students(conn, institute_id: int) -> int:
     return conn.execute(
-        "SELECT COUNT(*) FROM students WHERE institute_id=?", (institute_id,)
+        "SELECT COUNT(*) FROM students WHERE institute_id=? AND (is_deleted IS NULL OR is_deleted=0)", (institute_id,)
     ).fetchone()[0]
 
 def can_add_student(conn, institute_id: int):
@@ -551,12 +591,12 @@ def can_add_student(conn, institute_id: int):
 def list_students(conn, institute_id: int, parent_email: str | None = None):
     if parent_email:
         rows = conn.execute(
-            "SELECT * FROM students WHERE institute_id=? AND parent_email=? ORDER BY name",
+            "SELECT * FROM students WHERE institute_id=? AND parent_email=? AND (is_deleted IS NULL OR is_deleted=0) ORDER BY name",
             (institute_id, parent_email),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM students WHERE institute_id=? ORDER BY name", (institute_id,)
+            "SELECT * FROM students WHERE institute_id=? AND (is_deleted IS NULL OR is_deleted=0) ORDER BY name", (institute_id,)
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -579,11 +619,17 @@ def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email
     conn.commit()
     return new_id
 
-def delete_student(conn, institute_id: int, student_id: str):
-    conn.execute("DELETE FROM students WHERE id=? AND institute_id=?", (student_id, institute_id))
-    conn.execute("DELETE FROM payment_status WHERE student_id=? AND institute_id=?", (student_id, institute_id))
-    conn.execute("DELETE FROM attendance WHERE student_id=? AND institute_id=?", (student_id, institute_id))
+def delete_student(conn, institute_id: int, student_id: str, actor_email: str = ""):
+    """Soft-deletes the student: hides them from every roster/attendance/fee
+    view, but keeps the underlying row (and their attendance + payment
+    history) in the database rather than permanently erasing it. This means
+    an accidental delete — or a parent later disputing a past fee — doesn't
+    destroy the record it would take to sort things out."""
+    student = get_student(conn, institute_id, student_id)
+    conn.execute("UPDATE students SET is_deleted=1 WHERE id=? AND institute_id=?", (student_id, institute_id))
     conn.commit()
+    student_name = student["name"] if student else student_id
+    log_audit_event(conn, actor_email, "student_deleted", f"Removed {student_name} ({student_id})", institute_id)
 
 def update_student_parent_email(conn, institute_id: int, student_id: str, parent_email: str | None):
     conn.execute(
@@ -768,6 +814,18 @@ def logo_img_tag(size=48):
         f'style="width: {size}px; height: {size}px; border-radius: 12px; '
         f'border: 1.5px solid #38bdf8; object-fit: cover;" />'
     )
+
+def rows_to_csv_bytes(rows: list[dict]) -> bytes:
+    """Turns a list of dicts (as returned by list_students / list_financial_records)
+    into CSV bytes for st.download_button. Uses the stdlib csv module rather
+    than pandas so it doesn't add a dependency just for this."""
+    if not rows:
+        return b""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
+    return buf.getvalue().encode("utf-8")
 
 def esc(value) -> str:
     """Escapes a value for safe interpolation into an unsafe_allow_html
@@ -1192,6 +1250,10 @@ def show_teacher_dashboard():
 
         if all_students:
             st.dataframe(all_students, use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Export Roster (CSV)", rows_to_csv_bytes(all_students),
+                file_name="roster.csv", mime="text/csv", key="teacher_export_roster"
+            )
         else:
             st.info("No students added yet. Use the form below to register your first student.")
 
@@ -1256,7 +1318,7 @@ def show_teacher_dashboard():
                 del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select")
                 if st.button("Confirm Delete", type="primary", use_container_width=True):
                     chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
-                    delete_student(conn, institute_id, chosen_id)
+                    delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
                     st.success("Student removed.")
                     st.rerun()
             else:
@@ -1616,6 +1678,10 @@ def show_admin_dashboard():
 
     if all_students:
         st.dataframe(all_students, use_container_width=True, hide_index=True)
+        st.download_button(
+            "⬇️ Export Roster (CSV)", rows_to_csv_bytes(all_students),
+            file_name=f"{institute_name}_roster.csv", mime="text/csv", key="admin_export_roster"
+        )
     else:
         st.info("No student records available.")
 
@@ -1679,7 +1745,7 @@ def show_admin_dashboard():
             del_choice = st.selectbox("Select Student to Remove", del_options, key="admin_del_stu_select")
             if st.button("Confirm Delete", type="primary", use_container_width=True, key="admin_del_stu_btn"):
                 chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
-                delete_student(conn, institute_id, chosen_id)
+                delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
                 st.success("Student removed.")
                 st.rerun()
         else:
@@ -1690,6 +1756,10 @@ def show_admin_dashboard():
     records = list_financial_records(conn, institute_id)
     if records:
         st.dataframe(records, use_container_width=True, hide_index=True)
+        st.download_button(
+            "⬇️ Export Ledger (CSV)", rows_to_csv_bytes(records),
+            file_name=f"{institute_name}_ledger.csv", mime="text/csv", key="admin_export_ledger"
+        )
     else:
         st.info("No ledger entries available.")
 
@@ -1823,7 +1893,7 @@ def show_super_admin_dashboard():
                 )
                 if st.button("💾 Save Plan", key=f"save_plan_{inst['id']}", use_container_width=True):
                     new_limit = FREE_STUDENT_LIMIT if new_plan == "Free" else 999999
-                    set_institute_plan(conn, inst["id"], new_plan, new_limit)
+                    set_institute_plan(conn, inst["id"], new_plan, new_limit, actor_email=st.session_state.get("user_email", ""))
                     st.success(f"{inst['name']} is now on the {new_plan} plan. They'll see it reflected next time they log in.")
                     st.rerun()
     else:
@@ -1840,7 +1910,7 @@ def show_super_admin_dashboard():
         if st.form_submit_button("Reset Password", use_container_width=True):
             clean_target = target_email.strip().lower()
             user_row = conn.execute(
-                "SELECT email, role, is_super_admin FROM users WHERE email=?", (clean_target,)
+                "SELECT email, role, is_super_admin, institute_id FROM users WHERE email=?", (clean_target,)
             ).fetchone()
             if not clean_target or not target_new_pw:
                 st.warning("Email and new password are both required.")
@@ -1850,6 +1920,10 @@ def show_super_admin_dashboard():
                 st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
             else:
                 update_password(conn, clean_target, target_new_pw)
+                log_audit_event(
+                    conn, st.session_state.get("user_email", ""), "password_reset",
+                    f"Reset password for {clean_target}", user_row["institute_id"],
+                )
                 role_label = "Super Admin" if user_row["is_super_admin"] else user_row["role"]
                 st.success(f"Password reset for {clean_target} ({role_label}). Share the new password with them directly.")
 
@@ -1875,6 +1949,18 @@ def show_super_admin_dashboard():
             else:
                 update_password(conn, my_email, new_pw)
                 st.success("Password updated. Use it next time you log in.")
+
+    st.write("---")
+    st.subheader("📜 Audit Log")
+    st.caption("Recent platform-wide actions: plan changes, password resets, and student deletions.")
+    audit_entries = list_audit_log(conn)
+    if audit_entries:
+        st.dataframe(
+            [{"When": e["timestamp"], "Actor": e["actor_email"], "Action": e["action"], "Details": e["details"]} for e in audit_entries],
+            use_container_width=True, hide_index=True
+        )
+    else:
+        st.info("No audit events recorded yet.")
 
     logout_button("superadmin_logout_btn")
 
