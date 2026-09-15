@@ -8,6 +8,7 @@ import base64
 import html
 import csv
 import io
+import re
 
 # ----------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -163,6 +164,13 @@ def verify_password(password: str, stored: str) -> bool:
 def is_password_strong_enough(password: str) -> bool:
     return bool(password) and len(password) >= MIN_PASSWORD_LENGTH
 
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+def is_valid_email(email: str) -> bool:
+    """Deliberately simple check (not a full RFC 5322 validator) — just
+    enough to catch obvious typos and junk input at account-creation time."""
+    return bool(email) and bool(_EMAIL_PATTERN.match(email))
+
 # ----------------------------------------------------
 # 3. DATABASE LAYER (SQLite — persists on disk, shared across everyone
 #    who connects to this app, unlike the old per-browser session_state)
@@ -261,6 +269,11 @@ def _create_schema(conn):
         action TEXT,
         details TEXT,
         institute_id INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS login_attempts (
+        email TEXT PRIMARY KEY,
+        failed_count INTEGER DEFAULT 0,
+        locked_until TEXT
     );
     """)
     conn.commit()
@@ -462,6 +475,45 @@ def init_db(conn):
         conn.commit()
 
 # ---- Auth ----
+
+# After this many failed attempts for one email, block further tries for
+# LOGIN_LOCKOUT_MINUTES. Keyed by email (not IP, which Streamlit doesn't
+# expose) so it stops repeated guessing against one account, not a general
+# rate limit on the login page itself.
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_MINUTES = 15
+
+def check_login_lock(conn, email: str):
+    """Returns (is_locked: bool, seconds_remaining: int)."""
+    row = conn.execute("SELECT locked_until FROM login_attempts WHERE email=?", (email,)).fetchone()
+    if not row or not row["locked_until"]:
+        return False, 0
+    try:
+        locked_until = datetime.datetime.strptime(row["locked_until"], "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return False, 0
+    now = datetime.datetime.now()
+    if now < locked_until:
+        return True, int((locked_until - now).total_seconds())
+    return False, 0
+
+def record_failed_login(conn, email: str):
+    row = conn.execute("SELECT failed_count FROM login_attempts WHERE email=?", (email,)).fetchone()
+    failed_count = (row["failed_count"] if row else 0) + 1
+    locked_until = None
+    if failed_count >= LOGIN_MAX_ATTEMPTS:
+        locked_until = (datetime.datetime.now() + datetime.timedelta(minutes=LOGIN_LOCKOUT_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+        failed_count = 0  # reset the counter once locked, so the next window starts fresh
+    conn.execute(
+        """INSERT INTO login_attempts(email, failed_count, locked_until) VALUES (?,?,?)
+           ON CONFLICT(email) DO UPDATE SET failed_count=excluded.failed_count, locked_until=excluded.locked_until""",
+        (email, failed_count, locked_until),
+    )
+    conn.commit()
+
+def clear_failed_login(conn, email: str):
+    conn.execute("DELETE FROM login_attempts WHERE email=?", (email,))
+    conn.commit()
 
 def update_password(conn, email: str, new_password: str):
     conn.execute(
@@ -676,6 +728,16 @@ def save_attendance(conn, institute_id: int, date_str: str, entries: list[dict])
             (date_str, e["student_id"], e["status"], e["class_name"], institute_id),
         )
     conn.commit()
+
+def attendance_for_date(conn, institute_id: int, date_str: str) -> dict:
+    """Returns {student_id: status} for whatever was already recorded on this
+    date, so re-opening a past date shows what's actually saved instead of
+    always defaulting back to all-present."""
+    rows = conn.execute(
+        "SELECT student_id, status FROM attendance WHERE institute_id=? AND date=?",
+        (institute_id, date_str),
+    ).fetchall()
+    return {r["student_id"]: r["status"] for r in rows}
 
 def attendance_history(conn, institute_id: int, student_id: str):
     rows = conn.execute(
@@ -1126,25 +1188,32 @@ def show_login():
 
             if submit_btn:
                 clean_email = email_input.strip().lower()
-                result = authenticate(conn, clean_email, password_input)
-                if result:
-                    st.session_state.logged_in = True
-                    st.session_state.logged_in_role = result["role"]
-                    st.session_state.user_email = clean_email
-                    st.session_state.is_super_admin = result["is_super_admin"]
-                    st.session_state.institute_id = result["institute_id"]
-
-                    if result["institute_id"]:
-                        inst = get_institute(conn, result["institute_id"])
-                        if inst:
-                            st.session_state.institute_name = inst["name"]
-                            st.session_state.institute_plan = inst["plan"]
-                            st.session_state.student_limit = inst["student_limit"]
-
-                    st.session_state.active_view = "SuperAdmin" if result["is_super_admin"] else result["role"]
-                    st.rerun()
+                is_locked, seconds_left = check_login_lock(conn, clean_email)
+                if is_locked:
+                    minutes_left = max(1, seconds_left // 60)
+                    st.error(f"Too many failed attempts for this account. Try again in about {minutes_left} minute(s).")
                 else:
-                    st.error("Invalid email or password. Please verify credentials.")
+                    result = authenticate(conn, clean_email, password_input)
+                    if result:
+                        clear_failed_login(conn, clean_email)
+                        st.session_state.logged_in = True
+                        st.session_state.logged_in_role = result["role"]
+                        st.session_state.user_email = clean_email
+                        st.session_state.is_super_admin = result["is_super_admin"]
+                        st.session_state.institute_id = result["institute_id"]
+
+                        if result["institute_id"]:
+                            inst = get_institute(conn, result["institute_id"])
+                            if inst:
+                                st.session_state.institute_name = inst["name"]
+                                st.session_state.institute_plan = inst["plan"]
+                                st.session_state.student_limit = inst["student_limit"]
+
+                        st.session_state.active_view = "SuperAdmin" if result["is_super_admin"] else result["role"]
+                        st.rerun()
+                    else:
+                        record_failed_login(conn, clean_email)
+                        st.error("Invalid email or password. Please verify credentials.")
 
         if SHOW_DEMO_CREDENTIALS:
             with st.expander("Demo credentials", expanded=False):
@@ -1167,7 +1236,9 @@ def show_login():
             if st.form_submit_button("Create My Academy Account", use_container_width=True):
                 clean_s_email = s_email.strip().lower()
                 if s_institute.strip() and clean_s_email and s_pass.strip():
-                    if not is_password_strong_enough(s_pass):
+                    if not is_valid_email(clean_s_email):
+                        st.warning("Please enter a valid email address.")
+                    elif not is_password_strong_enough(s_pass):
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
@@ -1327,8 +1398,16 @@ def show_teacher_dashboard():
     # ---------------- TAB 2: ATTENDANCE DESK ----------------
     with tab_attendance:
         st.subheader("Daily Attendance Register")
-        today_str = datetime.date.today().strftime("%Y-%m-%d")
-        st.caption(f"Logging Record for: **{today_str}**")
+        selected_date = st.date_input(
+            "Attendance Date",
+            value=datetime.date.today(),
+            max_value=datetime.date.today(),
+            key="att_desk_date_picker",
+            help="Pick a past date to correct or fill in attendance you missed logging that day."
+        )
+        today_str = selected_date.strftime("%Y-%m-%d")
+        existing_for_date = attendance_for_date(conn, institute_id, today_str)
+        st.caption(f"Logging Record for: **{today_str}**" + (" _(editing a saved record)_" if existing_for_date else ""))
 
         all_students = list_students(conn, institute_id)
         registered_rooms = sorted(list(set(s.get("grade", "").strip() for s in all_students if s.get("grade"))))
@@ -1364,13 +1443,17 @@ def show_teacher_dashboard():
         st.write("---")
         for s in active_roster:
             s_id = s["id"]
-            # Including batch_stamp in the key forces a brand-new checkbox
-            # widget whenever Mark All/Clear All is clicked — otherwise
-            # Streamlit remembers the checkbox's own prior state and ignores
-            # the value= we pass in, so the buttons would silently do nothing.
+            # Prefill from whatever's already saved for this date; fall back
+            # to the Mark All/Clear All default for students with no record
+            # yet on this date. Including batch_stamp and the date in the key
+            # forces a brand-new checkbox widget whenever the date changes or
+            # Mark All/Clear All is clicked — otherwise Streamlit remembers
+            # the checkbox's own prior state and ignores the value= we pass in.
+            default_checked = existing_for_date.get(s_id, None)
+            default_checked = (default_checked == "Present") if default_checked is not None else st.session_state.att_mark_default
             attendance_status[s_id] = st.checkbox(
                 f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
-                value=st.session_state.att_mark_default,
+                value=default_checked,
                 key=f"att_check_{s_id}_{today_str}_{batch_stamp}"
             )
 
@@ -1385,7 +1468,7 @@ def show_teacher_dashboard():
             ]
             save_attendance(conn, institute_id, today_str, entries)
             present_count = sum(1 for e in entries if e["status"] == "Present")
-            st.success(f"Attendance recorded! Present: {present_count} | Absent: {len(entries) - present_count}")
+            st.success(f"Attendance recorded for {today_str}! Present: {present_count} | Absent: {len(entries) - present_count}")
 
     # ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
@@ -1779,7 +1862,9 @@ def show_admin_dashboard():
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_email = p_email.strip().lower()
                 if clean_email and p_pass.strip():
-                    if not is_password_strong_enough(p_pass):
+                    if not is_valid_email(clean_email):
+                        st.warning("Please enter a valid email address.")
+                    elif not is_password_strong_enough(p_pass):
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
@@ -1821,7 +1906,9 @@ def show_admin_dashboard():
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_t_email = t_email.strip().lower()
                 if clean_t_email and t_pass.strip():
-                    if not is_password_strong_enough(t_pass):
+                    if not is_valid_email(clean_t_email):
+                        st.warning("Please enter a valid email address.")
+                    elif not is_password_strong_enough(t_pass):
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
