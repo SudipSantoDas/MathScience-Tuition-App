@@ -1750,6 +1750,30 @@ def show_super_admin_dashboard():
         st.info("No institutes have signed up yet.")
 
     st.write("---")
+    st.subheader("🔓 Reset a User's Password")
+    st.caption("For when an Admin, Teacher, or Parent gets locked out and can't reset it themselves.")
+
+    with st.form("reset_user_pw_form", clear_on_submit=True):
+        target_email = st.text_input("Their Email", placeholder="someone@example.com")
+        target_new_pw = st.text_input("New Password for Them", type="password")
+
+        if st.form_submit_button("Reset Password", use_container_width=True):
+            clean_target = target_email.strip().lower()
+            user_row = conn.execute(
+                "SELECT email, role, is_super_admin FROM users WHERE email=?", (clean_target,)
+            ).fetchone()
+            if not clean_target or not target_new_pw:
+                st.warning("Email and new password are both required.")
+            elif not user_row:
+                st.error("No account found with that email.")
+            elif len(target_new_pw) < 8:
+                st.warning("New password should be at least 8 characters.")
+            else:
+                update_password(conn, clean_target, target_new_pw)
+                role_label = "Super Admin" if user_row["is_super_admin"] else user_row["role"]
+                st.success(f"Password reset for {clean_target} ({role_label}). Share the new password with them directly.")
+
+    st.write("---")
     st.subheader("🔑 Change Your Password")
     st.caption("Do this now if you're still on the default seeded password.")
 
