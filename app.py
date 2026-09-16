@@ -652,18 +652,27 @@ def list_students(conn, institute_id: int, parent_email: str | None = None):
         ).fetchall()
     return [dict(r) for r in rows]
 
+def _student_id_prefix(institute_id: int) -> str:
+    """Every institute's student IDs are scoped and separated by a dash
+    (STU<institute_id>-<sequence>) so the numeric suffix used for 'what's
+    the next ID' can never be confused with the institute_id itself."""
+    return f"STU{institute_id}-"
+
 def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email=None):
-    # Base the next ID on the highest STUxxx number ever used WITHIN THIS
+    # Base the next ID on the highest sequence number ever used WITHIN THIS
     # INSTITUTE, not the current row count (COUNT(*) breaks after a delete)
     # and not a global platform-wide MAX (which would leak one institute's
     # growth into another's numbering and force a full-table scan as the
-    # platform grows). Scoping to institute_id keeps this cheap and isolated.
+    # platform grows). The STU<id>- prefix keeps the institute_id and the
+    # sequence number unambiguous so re-reading "the highest number used"
+    # never re-absorbs the institute_id into the count.
+    prefix = _student_id_prefix(institute_id)
     row = conn.execute(
-        "SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%' AND institute_id=?",
-        (institute_id,),
+        "SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) FROM students WHERE id LIKE ? AND institute_id=?",
+        (len(prefix) + 1, prefix + "%", institute_id),
     ).fetchone()
     highest = row[0] if row and row[0] is not None else 100
-    new_id = f"STU{institute_id}{highest + 1}"
+    new_id = f"{prefix}{highest + 1}"
     conn.execute(
         "INSERT INTO students(id, name, grade, subject, fee, parent_email, institute_id) VALUES (?,?,?,?,?,?,?)",
         (new_id, name, grade, subject, fee, parent_email or None, institute_id),
@@ -680,9 +689,10 @@ def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
     especially over the network on Turso. Returns the number of rows inserted."""
     if not rows:
         return 0
+    prefix = _student_id_prefix(institute_id)
     row = conn.execute(
-        "SELECT MAX(CAST(SUBSTR(id, 4) AS INTEGER)) FROM students WHERE id LIKE 'STU%' AND institute_id=?",
-        (institute_id,),
+        "SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) FROM students WHERE id LIKE ? AND institute_id=?",
+        (len(prefix) + 1, prefix + "%", institute_id),
     ).fetchone()
     next_num = (row[0] if row and row[0] is not None else 100) + 1
     inserted = 0
@@ -690,7 +700,7 @@ def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
         name = (r.get("name") or "").strip()
         if not name:
             continue
-        new_id = f"STU{institute_id}{next_num}"
+        new_id = f"{prefix}{next_num}"
         next_num += 1
         try:
             fee_val = int(float(r.get("fee") or 0))
@@ -797,15 +807,17 @@ def get_payment_status(conn, institute_id: int, student_id: str) -> str:
 
 def _next_tx_id(conn, institute_id: int) -> str:
     # Same "highest number used, not row count" logic as student IDs — scoped
-    # per institute for the same reasons (avoids leaking one institute's
-    # transaction volume into another's numbering, and avoids a growing
-    # platform-wide full-table scan on every fee update).
+    # per institute (for the same "avoid leaking growth across institutes /
+    # avoid a full-table scan" reasons) and separated with a dash so the
+    # institute_id and the sequence number can never be confused when read
+    # back via SUBSTR — the same bug class the student-ID scheme had to avoid.
+    prefix = f"TXN{institute_id}-"
     row = conn.execute(
-        "SELECT MAX(CAST(SUBSTR(tx_id, 4) AS INTEGER)) FROM financial_records WHERE tx_id LIKE 'TXN%' AND institute_id=?",
-        (institute_id,),
+        "SELECT MAX(CAST(SUBSTR(tx_id, ?) AS INTEGER)) FROM financial_records WHERE tx_id LIKE ? AND institute_id=?",
+        (len(prefix) + 1, prefix + "%", institute_id),
     ).fetchone()
     highest = row[0] if row and row[0] is not None else 900
-    return f"TXN{institute_id}{highest + 1}"
+    return f"{prefix}{highest + 1}"
 
 def set_payment_status(conn, institute_id: int, student_id: str, status: str):
     previous_status = get_payment_status(conn, institute_id, student_id)
