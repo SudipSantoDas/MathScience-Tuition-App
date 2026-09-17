@@ -483,9 +483,31 @@ def init_db(conn):
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_MINUTES = 15
 
+def _ensure_login_attempts_table(conn):
+    """Self-healing: (re)creates login_attempts on the fly if it's ever
+    missing on the active backend (seen in practice on Turso — a schema
+    statement can occasionally not land on first connect). Safe to call
+    on every login-lockout check; it's a no-op once the table exists."""
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
+            email TEXT PRIMARY KEY, failed_count INTEGER DEFAULT 0, locked_until TEXT
+        )""")
+        conn.commit()
+    except Exception:
+        pass
+
 def check_login_lock(conn, email: str):
-    """Returns (is_locked: bool, seconds_remaining: int)."""
-    row = conn.execute("SELECT locked_until FROM login_attempts WHERE email=?", (email,)).fetchone()
+    """Returns (is_locked: bool, seconds_remaining: int). This is a
+    nice-to-have anti-brute-force check, not core to login working at all —
+    so any problem reaching login_attempts (missing table, a flaky remote
+    connection) must never crash the login page. On any error, this fails
+    OPEN (treats the account as not locked) rather than blocking everyone
+    from logging in."""
+    try:
+        _ensure_login_attempts_table(conn)
+        row = conn.execute("SELECT locked_until FROM login_attempts WHERE email=?", (email,)).fetchone()
+    except Exception:
+        return False, 0
     if not row or not row["locked_until"]:
         return False, 0
     try:
@@ -498,22 +520,35 @@ def check_login_lock(conn, email: str):
     return False, 0
 
 def record_failed_login(conn, email: str):
-    row = conn.execute("SELECT failed_count FROM login_attempts WHERE email=?", (email,)).fetchone()
-    failed_count = (row["failed_count"] if row else 0) + 1
-    locked_until = None
-    if failed_count >= LOGIN_MAX_ATTEMPTS:
-        locked_until = (datetime.datetime.now() + datetime.timedelta(minutes=LOGIN_LOCKOUT_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
-        failed_count = 0  # reset the counter once locked, so the next window starts fresh
-    conn.execute(
-        """INSERT INTO login_attempts(email, failed_count, locked_until) VALUES (?,?,?)
-           ON CONFLICT(email) DO UPDATE SET failed_count=excluded.failed_count, locked_until=excluded.locked_until""",
-        (email, failed_count, locked_until),
-    )
-    conn.commit()
+    """Best-effort: if this fails (e.g. the table momentarily isn't
+    reachable), the failed attempt just isn't counted — it must never
+    prevent the 'Invalid email or password' message from showing."""
+    try:
+        _ensure_login_attempts_table(conn)
+        row = conn.execute("SELECT failed_count FROM login_attempts WHERE email=?", (email,)).fetchone()
+        failed_count = (row["failed_count"] if row else 0) + 1
+        locked_until = None
+        if failed_count >= LOGIN_MAX_ATTEMPTS:
+            locked_until = (datetime.datetime.now() + datetime.timedelta(minutes=LOGIN_LOCKOUT_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+            failed_count = 0  # reset the counter once locked, so the next window starts fresh
+        conn.execute(
+            """INSERT INTO login_attempts(email, failed_count, locked_until) VALUES (?,?,?)
+               ON CONFLICT(email) DO UPDATE SET failed_count=excluded.failed_count, locked_until=excluded.locked_until""",
+            (email, failed_count, locked_until),
+        )
+        conn.commit()
+    except Exception:
+        pass
 
 def clear_failed_login(conn, email: str):
-    conn.execute("DELETE FROM login_attempts WHERE email=?", (email,))
-    conn.commit()
+    """Best-effort cleanup after a successful login — a failure here must
+    never block the person from actually reaching their dashboard."""
+    try:
+        _ensure_login_attempts_table(conn)
+        conn.execute("DELETE FROM login_attempts WHERE email=?", (email,))
+        conn.commit()
+    except Exception:
+        pass
 
 def update_password(conn, email: str, new_password: str):
     conn.execute(
