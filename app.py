@@ -1188,6 +1188,25 @@ st.markdown(f"""
     div[data-testid="stToolbar"] {{ display: none !important; }}
     footer {{ display: none !important; }}
     div[class*="viewerBadge"] {{ display: none !important; }}
+    /* Keep the built-in "running" indicator visible and easy to notice —
+       without this, hiding the toolbar above can make it feel like nothing
+       happened when you tap a button, especially with Turso adding network
+       latency to every action. */
+    div[data-testid="stStatusWidget"] {{
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: fixed !important;
+        top: 10px !important;
+        right: 12px !important;
+        z-index: 999999 !important;
+        background: rgba(2, 132, 199, 0.9) !important;
+        border-radius: 20px !important;
+        padding: 4px 10px !important;
+    }}
+    div[data-testid="stStatusWidget"] * {{
+        color: #ffffff !important;
+    }}
     .block-container {{
         padding-top: 2rem !important;
         padding-bottom: 2rem !important;
@@ -1351,7 +1370,8 @@ def show_login():
                     minutes_left = max(1, seconds_left // 60)
                     st.error(f"Too many failed attempts for this account. Try again in about {minutes_left} minute(s).")
                 else:
-                    result = authenticate(conn, clean_email, password_input)
+                    with st.spinner("Checking credentials…"):
+                        result = authenticate(conn, clean_email, password_input)
                     if result:
                         clear_failed_login(conn, clean_email)
                         st.session_state.logged_in = True
@@ -1518,15 +1538,16 @@ def show_teacher_dashboard():
                         if not allowed:
                             st.error(limit_msg)
                         else:
-                            add_student(
-                                conn,
-                                institute_id,
-                                stu_name.strip(),
-                                stu_grade.strip() or "General",
-                                stu_subject.strip() or "General",
-                                stu_fee,
-                                stu_parent_email.strip().lower() or None,
-                            )
+                            with st.spinner("Saving student…"):
+                                add_student(
+                                    conn,
+                                    institute_id,
+                                    stu_name.strip(),
+                                    stu_grade.strip() or "General",
+                                    stu_subject.strip() or "General",
+                                    stu_fee,
+                                    stu_parent_email.strip().lower() or None,
+                                )
                             st.success(f"Added {stu_name.strip()} successfully!")
                             st.rerun()
                     else:
@@ -1636,7 +1657,8 @@ def show_teacher_dashboard():
                 }
                 for s in active_roster
             ]
-            save_attendance(conn, institute_id, today_str, entries)
+            with st.spinner("Saving attendance…"):
+                save_attendance(conn, institute_id, today_str, entries)
             present_count = sum(1 for e in entries if e["status"] == "Present")
             st.success(f"Attendance recorded for {today_str}! Present: {present_count} | Absent: {len(entries) - present_count}")
 
@@ -1688,8 +1710,9 @@ def show_teacher_dashboard():
                 submit_fee_update = st.form_submit_button("💾 Save Payment Statuses", use_container_width=True, type="primary")
 
                 if submit_fee_update:
-                    for sid, stat in new_statuses.items():
-                        set_payment_status(conn, institute_id, sid, stat)
+                    with st.spinner("Saving payment statuses…"):
+                        for sid, stat in new_statuses.items():
+                            set_payment_status(conn, institute_id, sid, stat)
                     st.success("Payment records updated!")
                     st.rerun()
 
@@ -1740,7 +1763,8 @@ def show_teacher_dashboard():
                 if st.form_submit_button("Publish Announcement", use_container_width=True):
                     if n_title.strip() and n_body.strip():
                         target = None if n_target_grade == "All Classes" else n_target_grade
-                        add_notice(conn, institute_id, n_title.strip(), n_body.strip(), n_priority, datetime.date.today().strftime("%d %b %Y"), target)
+                        with st.spinner("Publishing notice…"):
+                            add_notice(conn, institute_id, n_title.strip(), n_body.strip(), n_priority, datetime.date.today().strftime("%d %b %Y"), target)
                         st.success("Notice published successfully!")
                         st.rerun()
                     else:
@@ -1964,15 +1988,16 @@ def show_admin_dashboard():
                     if not allowed:
                         st.error(limit_msg)
                     else:
-                        add_student(
-                            conn,
-                            institute_id,
-                            a_name.strip(),
-                            a_grade.strip() or "General",
-                            a_subject.strip() or "General",
-                            a_fee,
-                            a_parent_email.strip().lower() or None,
-                        )
+                        with st.spinner("Saving student…"):
+                            add_student(
+                                conn,
+                                institute_id,
+                                a_name.strip(),
+                                a_grade.strip() or "General",
+                                a_subject.strip() or "General",
+                                a_fee,
+                                a_parent_email.strip().lower() or None,
+                            )
                         st.success(f"Added {a_name.strip()} successfully!")
                         st.rerun()
                 else:
