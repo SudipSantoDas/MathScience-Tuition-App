@@ -1207,6 +1207,19 @@ st.markdown(f"""
     div[data-testid="stStatusWidget"] * {{
         color: #ffffff !important;
     }}
+    /* Toast notifications (st.toast) need their own explicit background AND
+       text color set together — the global "p, span, label" rule above only
+       forces light text, and without a matching dark background here that
+       text can end up light-on-light and effectively invisible. */
+    div[data-testid="stToast"] {{
+        background-color: #1e293b !important;
+        border: 1.5px solid #38bdf8 !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+    }}
+    div[data-testid="stToast"] * {{
+        color: #ffffff !important;
+        opacity: 1 !important;
+    }}
     .block-container {{
         padding-top: 2rem !important;
         padding-bottom: 2rem !important;
@@ -1501,10 +1514,16 @@ def show_teacher_dashboard():
         "📢 Notice Board"
     ])
 
+    # Fetched ONCE here and reused across all four tabs below — Streamlit
+    # renders every tab's code on every single rerun (not just the visible
+    # one), so calling list_students() separately per tab meant every click
+    # anywhere on this page triggered 4 separate Turso round-trips for the
+    # same roster before your click was even acknowledged.
+    all_students = list_students(conn, institute_id)
+
     # ---------------- TAB 1: STUDENT MANAGEMENT ----------------
     with tab_students:
         st.subheader("Academy Student Roster")
-        all_students = list_students(conn, institute_id)
 
         roster_search = st.text_input(
             "🔎 Search roster", placeholder="Search by name, ID, grade, subject, or parent email…",
@@ -1614,7 +1633,6 @@ def show_teacher_dashboard():
         existing_for_date = attendance_for_date(conn, institute_id, today_str)
         st.caption(f"Logging Record for: **{today_str}**" + (" _(editing a saved record)_" if existing_for_date else ""))
 
-        all_students = list_students(conn, institute_id)
         registered_rooms = sorted(list(set(s.get("grade", "").strip() for s in all_students if s.get("grade"))))
 
         if not registered_rooms:
@@ -1682,7 +1700,6 @@ def show_teacher_dashboard():
     # ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
         st.subheader("Tuition Fee Management")
-        all_students = list_students(conn, institute_id)
 
         if all_students:
             total_expected = sum(s.get("fee", 0) for s in all_students)
@@ -1764,7 +1781,7 @@ def show_teacher_dashboard():
         st.subheader("📢 Academy Notice Board")
 
         registered_grades_for_notices = sorted(list(set(
-            s.get("grade", "").strip() for s in list_students(conn, institute_id) if s.get("grade")
+            s.get("grade", "").strip() for s in all_students if s.get("grade")
         )))
 
         with st.expander("➕ Broadcast New Announcement", expanded=False):
