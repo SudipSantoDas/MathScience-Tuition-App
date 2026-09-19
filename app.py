@@ -1247,6 +1247,7 @@ def render_admin_quick_nav(current: str):
     for col, (target, label) in zip(cols, others):
         with col:
             if st.button(label, use_container_width=True, key=f"nav_{current}_to_{target}"):
+                st.toast(f"Opening {target} desk…", icon="🔄")
                 go_to(target)
                 st.rerun()
     st.write("---")
@@ -1254,6 +1255,7 @@ def render_admin_quick_nav(current: str):
 def logout_button(key: str):
     st.write("---")
     if st.button("🚪 Log Out", use_container_width=True, key=key):
+        st.toast("Logging out…", icon="👋")
         st.session_state.clear()
         st.rerun()
 
@@ -1333,6 +1335,7 @@ def render_csv_import_widget(institute_id: int, key_prefix: str):
             return
 
     if st.button(f"✅ Import {len(valid_rows)} Student(s)", use_container_width=True, key=f"{key_prefix}_confirm_import"):
+        st.toast(f"Importing {len(valid_rows)} student(s)…", icon="⏳")
         with st.spinner(f"Importing {len(valid_rows)} student(s)…"):
             inserted = bulk_add_students(conn, institute_id, valid_rows)
             log_audit_event(conn, st.session_state.get("user_email", ""), "bulk_import", f"Imported {inserted} students via CSV", institute_id)
@@ -1371,6 +1374,7 @@ def show_login():
                     minutes_left = max(1, seconds_left // 60)
                     st.error(f"Too many failed attempts for this account. Try again in about {minutes_left} minute(s).")
                 else:
+                    st.toast("Checking credentials…", icon="⏳")
                     with st.spinner("Checking credentials…"):
                         result = authenticate(conn, clean_email, password_input)
                     if result:
@@ -1421,6 +1425,7 @@ def show_login():
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
+                            st.toast("Creating your academy…", icon="⏳")
                             with st.spinner("Creating your academy…"):
                                 create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
                             st.success(
@@ -1458,6 +1463,7 @@ def show_teacher_dashboard():
 
             if st.form_submit_button("Save Classroom", use_container_width=True):
                 if r_title.strip() and r_subj.strip():
+                    st.toast("Saving classroom…", icon="⏳")
                     with st.spinner("Saving classroom…"):
                         add_classroom(conn, institute_id, r_title.strip(), r_subj.strip(), r_batch.strip() or "Regular", r_fee)
                     st.success("Classroom created successfully!")
@@ -1541,6 +1547,7 @@ def show_teacher_dashboard():
                         if not allowed:
                             st.error(limit_msg)
                         else:
+                            st.toast("Saving student…", icon="⏳")
                             with st.spinner("Saving student…"):
                                 add_student(
                                     conn,
@@ -1571,6 +1578,7 @@ def show_teacher_dashboard():
                     key="new_parent_email_input"
                 )
                 if st.button("Update Link", use_container_width=True, key="update_parent_link_btn"):
+                    st.toast("Updating…", icon="⏳")
                     with st.spinner("Updating…"):
                         update_student_parent_email(conn, institute_id, chosen["id"], new_parent_email.strip().lower() or None)
                     st.success("Parent link updated.")
@@ -1584,6 +1592,7 @@ def show_teacher_dashboard():
                 del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select")
                 if st.button("Confirm Delete", type="primary", use_container_width=True):
                     chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
+                    st.toast("Removing student…", icon="⏳")
                     with st.spinner("Removing student…"):
                         delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
                     st.success("Student removed.")
@@ -1624,10 +1633,12 @@ def show_teacher_dashboard():
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button("✅ Mark All Present", use_container_width=True, key="mark_all_btn"):
+                st.toast("Marking everyone present…", icon="✅")
                 st.session_state.att_mark_default = True
                 st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
         with col_b:
             if st.button("⭕ Clear All", use_container_width=True, key="clear_all_btn"):
+                st.toast("Clearing all…", icon="⭕")
                 st.session_state.att_mark_default = False
                 st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
 
@@ -1662,6 +1673,7 @@ def show_teacher_dashboard():
                 }
                 for s in active_roster
             ]
+            st.toast("Saving attendance…", icon="⏳")
             with st.spinner("Saving attendance…"):
                 save_attendance(conn, institute_id, today_str, entries)
             present_count = sum(1 for e in entries if e["status"] == "Present")
@@ -1715,6 +1727,7 @@ def show_teacher_dashboard():
                 submit_fee_update = st.form_submit_button("💾 Save Payment Statuses", use_container_width=True, type="primary")
 
                 if submit_fee_update:
+                    st.toast("Saving payment statuses…", icon="⏳")
                     with st.spinner("Saving payment statuses…"):
                         for sid, stat in new_statuses.items():
                             set_payment_status(conn, institute_id, sid, stat)
@@ -1768,6 +1781,7 @@ def show_teacher_dashboard():
                 if st.form_submit_button("Publish Announcement", use_container_width=True):
                     if n_title.strip() and n_body.strip():
                         target = None if n_target_grade == "All Classes" else n_target_grade
+                        st.toast("Publishing notice…", icon="⏳")
                         with st.spinner("Publishing notice…"):
                             add_notice(conn, institute_id, n_title.strip(), n_body.strip(), n_priority, datetime.date.today().strftime("%d %b %Y"), target)
                         st.success("Notice published successfully!")
@@ -1933,10 +1947,12 @@ def show_admin_dashboard():
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
         if st.button("🧑‍🏫 Open Teacher Desk", use_container_width=True, key="admin_to_teacher_btn"):
+            st.toast("Opening Teacher Desk…", icon="🔄")
             go_to("Teacher")
             st.rerun()
     with col_nav2:
         if st.button("👨‍👩‍👧 Open Parent Portal", use_container_width=True, key="admin_to_parent_btn"):
+            st.toast("Opening Parent Portal…", icon="🔄")
             go_to("Parent")
             st.rerun()
 
@@ -1993,6 +2009,7 @@ def show_admin_dashboard():
                     if not allowed:
                         st.error(limit_msg)
                     else:
+                        st.toast("Saving student…", icon="⏳")
                         with st.spinner("Saving student…"):
                             add_student(
                                 conn,
@@ -2027,6 +2044,7 @@ def show_admin_dashboard():
                     value=editing.get("parent_email") or ""
                 )
                 if st.form_submit_button("Save Changes", use_container_width=True):
+                    st.toast("Saving changes…", icon="⏳")
                     with st.spinner("Saving changes…"):
                         update_student(conn, institute_id, editing["id"], e_name.strip(), e_grade.strip() or "General", e_subject.strip() or "General", e_fee)
                         update_student_parent_email(conn, institute_id, editing["id"], e_parent_email.strip().lower() or None)
@@ -2041,6 +2059,7 @@ def show_admin_dashboard():
             del_choice = st.selectbox("Select Student to Remove", del_options, key="admin_del_stu_select")
             if st.button("Confirm Delete", type="primary", use_container_width=True, key="admin_del_stu_btn"):
                 chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
+                st.toast("Removing student…", icon="⏳")
                 with st.spinner("Removing student…"):
                     delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
                 st.success("Student removed.")
@@ -2082,6 +2101,7 @@ def show_admin_dashboard():
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
+                            st.toast("Creating parent account…", icon="⏳")
                             with st.spinner("Creating parent account…"):
                                 create_parent_account(conn, institute_id, clean_email, p_pass)
                                 for name in p_children:
@@ -2105,6 +2125,7 @@ def show_admin_dashboard():
                 st.markdown(f"**{pr['email']}** — linked to: {linked_text}")
             with p_col2:
                 if st.button("Remove", key=f"del_parent_{pr['email']}", use_container_width=True):
+                    st.toast("Removing…", icon="⏳")
                     with st.spinner("Removing…"):
                         delete_parent_account(conn, institute_id, pr["email"])
                     st.rerun()
@@ -2128,6 +2149,7 @@ def show_admin_dashboard():
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
+                            st.toast("Creating teacher account…", icon="⏳")
                             with st.spinner("Creating teacher account…"):
                                 create_teacher_account(conn, institute_id, clean_t_email, t_pass)
                             st.success(f"Teacher account created for {clean_t_email}.")
@@ -2145,6 +2167,7 @@ def show_admin_dashboard():
                 st.markdown(f"**{tr['email']}**")
             with t_col2:
                 if st.button("Remove", key=f"del_teacher_{tr['email']}", use_container_width=True):
+                    st.toast("Removing…", icon="⏳")
                     with st.spinner("Removing…"):
                         delete_teacher_account(conn, institute_id, tr["email"])
                     st.rerun()
@@ -2198,6 +2221,7 @@ def show_super_admin_dashboard():
                 )
                 if st.button("💾 Save Plan", key=f"save_plan_{inst['id']}", use_container_width=True):
                     new_limit = FREE_STUDENT_LIMIT if new_plan == "Free" else 999999
+                    st.toast("Updating plan…", icon="⏳")
                     with st.spinner("Updating plan…"):
                         set_institute_plan(conn, inst["id"], new_plan, new_limit, actor_email=st.session_state.get("user_email", ""))
                     st.success(f"{inst['name']} is now on the {new_plan} plan. They'll see it reflected next time they log in.")
@@ -2225,6 +2249,7 @@ def show_super_admin_dashboard():
             elif not is_password_strong_enough(target_new_pw):
                 st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
             else:
+                st.toast("Resetting password…", icon="⏳")
                 with st.spinner("Resetting password…"):
                     update_password(conn, clean_target, target_new_pw)
                     log_audit_event(
@@ -2254,6 +2279,7 @@ def show_super_admin_dashboard():
             elif new_pw != confirm_pw:
                 st.warning("New password and confirmation don't match.")
             else:
+                st.toast("Updating password…", icon="⏳")
                 with st.spinner("Updating password…"):
                     update_password(conn, my_email, new_pw)
                 st.success("Password updated. Use it next time you log in.")
@@ -2319,6 +2345,7 @@ else:
             )
 
         if st.button("🚪 Logout", key="sidebar_logout_btn", use_container_width=True):
+            st.toast("Logging out…", icon="👋")
             st.session_state.clear()
             st.rerun()
 
