@@ -1333,8 +1333,9 @@ def render_csv_import_widget(institute_id: int, key_prefix: str):
             return
 
     if st.button(f"✅ Import {len(valid_rows)} Student(s)", use_container_width=True, key=f"{key_prefix}_confirm_import"):
-        inserted = bulk_add_students(conn, institute_id, valid_rows)
-        log_audit_event(conn, st.session_state.get("user_email", ""), "bulk_import", f"Imported {inserted} students via CSV", institute_id)
+        with st.spinner(f"Importing {len(valid_rows)} student(s)…"):
+            inserted = bulk_add_students(conn, institute_id, valid_rows)
+            log_audit_event(conn, st.session_state.get("user_email", ""), "bulk_import", f"Imported {inserted} students via CSV", institute_id)
         st.success(f"Imported {inserted} student(s) successfully!")
         st.rerun()
 
@@ -1420,7 +1421,8 @@ def show_login():
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
-                            create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
+                            with st.spinner("Creating your academy…"):
+                                create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
                             st.success(
                                 f"Account created! '{s_institute.strip()}' is live on the Free plan "
                                 f"(up to {FREE_STUDENT_LIMIT} students). Please log in above."
@@ -1456,7 +1458,8 @@ def show_teacher_dashboard():
 
             if st.form_submit_button("Save Classroom", use_container_width=True):
                 if r_title.strip() and r_subj.strip():
-                    add_classroom(conn, institute_id, r_title.strip(), r_subj.strip(), r_batch.strip() or "Regular", r_fee)
+                    with st.spinner("Saving classroom…"):
+                        add_classroom(conn, institute_id, r_title.strip(), r_subj.strip(), r_batch.strip() or "Regular", r_fee)
                     st.success("Classroom created successfully!")
                     st.rerun()
                 else:
@@ -1568,7 +1571,8 @@ def show_teacher_dashboard():
                     key="new_parent_email_input"
                 )
                 if st.button("Update Link", use_container_width=True, key="update_parent_link_btn"):
-                    update_student_parent_email(conn, institute_id, chosen["id"], new_parent_email.strip().lower() or None)
+                    with st.spinner("Updating…"):
+                        update_student_parent_email(conn, institute_id, chosen["id"], new_parent_email.strip().lower() or None)
                     st.success("Parent link updated.")
                     st.rerun()
             else:
@@ -1580,7 +1584,8 @@ def show_teacher_dashboard():
                 del_choice = st.selectbox("Select Student to Remove", student_options, key="del_stu_select")
                 if st.button("Confirm Delete", type="primary", use_container_width=True):
                     chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
-                    delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
+                    with st.spinner("Removing student…"):
+                        delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
                     st.success("Student removed.")
                     st.rerun()
             else:
@@ -2022,8 +2027,9 @@ def show_admin_dashboard():
                     value=editing.get("parent_email") or ""
                 )
                 if st.form_submit_button("Save Changes", use_container_width=True):
-                    update_student(conn, institute_id, editing["id"], e_name.strip(), e_grade.strip() or "General", e_subject.strip() or "General", e_fee)
-                    update_student_parent_email(conn, institute_id, editing["id"], e_parent_email.strip().lower() or None)
+                    with st.spinner("Saving changes…"):
+                        update_student(conn, institute_id, editing["id"], e_name.strip(), e_grade.strip() or "General", e_subject.strip() or "General", e_fee)
+                        update_student_parent_email(conn, institute_id, editing["id"], e_parent_email.strip().lower() or None)
                     st.success("Student record updated.")
                     st.rerun()
         else:
@@ -2035,7 +2041,8 @@ def show_admin_dashboard():
             del_choice = st.selectbox("Select Student to Remove", del_options, key="admin_del_stu_select")
             if st.button("Confirm Delete", type="primary", use_container_width=True, key="admin_del_stu_btn"):
                 chosen_id = del_choice.split("(")[-1].replace(")", "").strip()
-                delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
+                with st.spinner("Removing student…"):
+                    delete_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
                 st.success("Student removed.")
                 st.rerun()
         else:
@@ -2075,11 +2082,12 @@ def show_admin_dashboard():
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
-                            create_parent_account(conn, institute_id, clean_email, p_pass)
-                            for name in p_children:
-                                match = next((s for s in all_students if s["name"] == name), None)
-                                if match:
-                                    update_student_parent_email(conn, institute_id, match["id"], clean_email)
+                            with st.spinner("Creating parent account…"):
+                                create_parent_account(conn, institute_id, clean_email, p_pass)
+                                for name in p_children:
+                                    match = next((s for s in all_students if s["name"] == name), None)
+                                    if match:
+                                        update_student_parent_email(conn, institute_id, match["id"], clean_email)
                             st.success(f"Parent account created for {clean_email}.")
                             st.rerun()
                         except Exception:
@@ -2097,7 +2105,8 @@ def show_admin_dashboard():
                 st.markdown(f"**{pr['email']}** — linked to: {linked_text}")
             with p_col2:
                 if st.button("Remove", key=f"del_parent_{pr['email']}", use_container_width=True):
-                    delete_parent_account(conn, institute_id, pr["email"])
+                    with st.spinner("Removing…"):
+                        delete_parent_account(conn, institute_id, pr["email"])
                     st.rerun()
     else:
         st.info("No parent accounts yet — create one above.")
@@ -2119,7 +2128,8 @@ def show_admin_dashboard():
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
-                            create_teacher_account(conn, institute_id, clean_t_email, t_pass)
+                            with st.spinner("Creating teacher account…"):
+                                create_teacher_account(conn, institute_id, clean_t_email, t_pass)
                             st.success(f"Teacher account created for {clean_t_email}.")
                             st.rerun()
                         except Exception:
@@ -2135,7 +2145,8 @@ def show_admin_dashboard():
                 st.markdown(f"**{tr['email']}**")
             with t_col2:
                 if st.button("Remove", key=f"del_teacher_{tr['email']}", use_container_width=True):
-                    delete_teacher_account(conn, institute_id, tr["email"])
+                    with st.spinner("Removing…"):
+                        delete_teacher_account(conn, institute_id, tr["email"])
                     st.rerun()
     else:
         st.info("No teacher accounts yet — create one above.")
@@ -2187,7 +2198,8 @@ def show_super_admin_dashboard():
                 )
                 if st.button("💾 Save Plan", key=f"save_plan_{inst['id']}", use_container_width=True):
                     new_limit = FREE_STUDENT_LIMIT if new_plan == "Free" else 999999
-                    set_institute_plan(conn, inst["id"], new_plan, new_limit, actor_email=st.session_state.get("user_email", ""))
+                    with st.spinner("Updating plan…"):
+                        set_institute_plan(conn, inst["id"], new_plan, new_limit, actor_email=st.session_state.get("user_email", ""))
                     st.success(f"{inst['name']} is now on the {new_plan} plan. They'll see it reflected next time they log in.")
                     st.rerun()
     else:
@@ -2213,11 +2225,12 @@ def show_super_admin_dashboard():
             elif not is_password_strong_enough(target_new_pw):
                 st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
             else:
-                update_password(conn, clean_target, target_new_pw)
-                log_audit_event(
-                    conn, st.session_state.get("user_email", ""), "password_reset",
-                    f"Reset password for {clean_target}", user_row["institute_id"],
-                )
+                with st.spinner("Resetting password…"):
+                    update_password(conn, clean_target, target_new_pw)
+                    log_audit_event(
+                        conn, st.session_state.get("user_email", ""), "password_reset",
+                        f"Reset password for {clean_target}", user_row["institute_id"],
+                    )
                 role_label = "Super Admin" if user_row["is_super_admin"] else user_row["role"]
                 st.success(f"Password reset for {clean_target} ({role_label}). Share the new password with them directly.")
 
@@ -2241,7 +2254,8 @@ def show_super_admin_dashboard():
             elif new_pw != confirm_pw:
                 st.warning("New password and confirmation don't match.")
             else:
-                update_password(conn, my_email, new_pw)
+                with st.spinner("Updating password…"):
+                    update_password(conn, my_email, new_pw)
                 st.success("Password updated. Use it next time you log in.")
 
     st.write("---")
