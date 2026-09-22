@@ -275,6 +275,10 @@ def _create_schema(conn):
         failed_count INTEGER DEFAULT 0,
         locked_until TEXT
     );
+    CREATE TABLE IF NOT EXISTS signup_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT
+    );
     """)
     conn.commit()
 
@@ -482,6 +486,47 @@ def init_db(conn):
 # rate limit on the login page itself.
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_MINUTES = 15
+
+# Platform-wide cap on new institute signups per hour. This isn't per-person
+# (Streamlit doesn't expose the visitor's IP by default), so it's a blunt
+# instrument — but it stops a runaway script from flooding the platform with
+# junk institutes, which per-IP limiting wouldn't fully prevent either since
+# IPs are easy to rotate. Real bursts of legitimate signups (a marketing
+# push, say) are rare enough that this ceiling is unlikely to get in the way.
+SIGNUP_MAX_PER_HOUR = 10
+
+def _ensure_signup_log_table(conn):
+    """Self-healing, same pattern as _ensure_login_attempts_table."""
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS signup_log (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT)")
+        conn.commit()
+    except Exception:
+        pass
+
+def check_signup_rate_limit(conn):
+    """Returns (allowed: bool, message: str|None). Fails OPEN on any error —
+    a rate-limit check going down must never block a real signup."""
+    try:
+        _ensure_signup_log_table(conn)
+        one_hour_ago = (datetime.datetime.now() - datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        row = conn.execute("SELECT COUNT(*) FROM signup_log WHERE timestamp > ?", (one_hour_ago,)).fetchone()
+        count = row[0] if row else 0
+        if count >= SIGNUP_MAX_PER_HOUR:
+            return False, "A lot of new academies have signed up in the last hour. Please try again shortly."
+        return True, None
+    except Exception:
+        return True, None
+
+def record_signup_attempt(conn):
+    try:
+        _ensure_signup_log_table(conn)
+        conn.execute(
+            "INSERT INTO signup_log(timestamp) VALUES (?)",
+            (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),),
+        )
+        conn.commit()
+    except Exception:
+        pass
 
 def _ensure_login_attempts_table(conn):
     """Self-healing: (re)creates login_attempts on the fly if it's ever
@@ -846,12 +891,13 @@ def get_payment_status(conn, institute_id: int, student_id: str) -> str:
     return row["status"] if row else "Unpaid"
 
 def get_payment_statuses_bulk(conn, institute_id: int) -> dict:
-    """Fetches every student's payment status for this institute in ONE
-    query, instead of calling get_payment_status() once per student in a
-    loop. That N+1 pattern was showing up 3x on the Financial Desk alone
-    (total collected, the status-update form, the unpaid list) plus once
-    more on the Admin dashboard — with 15 students that's ~60 separate
-    Turso round-trips to render a single page. This cuts it to 1."""
+    """One query for every student's payment status in the institute, instead
+    of one round-trip per student. On Turso, calling get_payment_status() in
+    a loop over N students means N separate network round-trips just to
+    render a page — with 15 students called from 3 places on one tab, that's
+    45 round-trips before a single click even finishes. This does it in one.
+    Look up with statuses.get(student_id, "Unpaid") — students with no row
+    yet in payment_status default to Unpaid, same as get_payment_status()."""
     rows = conn.execute(
         "SELECT student_id, status FROM payment_status WHERE institute_id=?", (institute_id,)
     ).fetchall()
@@ -1237,6 +1283,34 @@ st.markdown(f"""
         color: #ffffff !important;
         opacity: 1 !important;
     }}
+    /* Password fields and native date pickers are OS/browser widgets on
+       mobile and don't reliably inherit the input[type="text"] styling
+       above — force them to match the dark theme explicitly. */
+    input[type="password"],
+    input[type="date"] {{
+        background-color: #0f172a !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        border: 1.5px solid #334155 !important;
+        font-weight: 600 !important;
+        color-scheme: dark;
+    }}
+    /* The little calendar icon inside a date input defaults to a dark icon
+       on a dark background (invisible) unless explicitly recolored. */
+    input[type="date"]::-webkit-calendar-picker-indicator {{
+        filter: invert(1);
+        opacity: 0.8;
+    }}
+    /* Instant visual feedback the moment a button is tapped, before the
+       network round-trip to the database even starts — otherwise a tap can
+       feel like it did nothing until the (Turso-backed, over-the-network)
+       rerun finishes and the page visibly changes. */
+    .stButton button:active,
+    div[data-testid="stFormSubmitButton"] button:active {{
+        transform: scale(0.97) !important;
+        opacity: 0.85 !important;
+        transition: transform 0.05s ease, opacity 0.05s ease !important;
+    }}
     .block-container {{
         padding-top: 2rem !important;
         padding-bottom: 2rem !important;
@@ -1441,29 +1515,66 @@ def show_login():
         st.markdown("### Start your own tuition academy on this platform")
         st.caption(f"Free plan includes up to {FREE_STUDENT_LIMIT} students, no credit card needed. Upgrade any time by contacting the platform owner.")
 
+        # A fresh math challenge is generated once per "session" of attempts
+        # and only regenerated after a submit (success or failure) — not on
+        # every rerun — so the numbers don't change while someone is still
+        # mid-way through filling the form.
+        if "signup_captcha_a" not in st.session_state:
+            st.session_state.signup_captcha_a = secrets.randbelow(9) + 1
+            st.session_state.signup_captcha_b = secrets.randbelow(9) + 1
+
         with st.form("signup_form", clear_on_submit=True):
             s_institute = st.text_input("Institute / Academy Name", placeholder="e.g., Bright Minds Tuition")
             s_email = st.text_input("Your Email (this becomes your Admin login)", placeholder="owner@myacademy.com")
             s_pass = st.text_input("Create Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
+            # Honeypot: a field real people have no reason to fill in. Basic
+            # signup bots that blindly fill every input on a page trip this;
+            # a genuine person filling out the form above never touches it.
+            s_honeypot = st.text_input(
+                "Leave this field empty",
+                key="signup_honeypot",
+                help="Spam protection — please leave this blank."
+            )
+            captcha_answer = st.number_input(
+                f"Quick check — what is {st.session_state.signup_captcha_a} + {st.session_state.signup_captcha_b}?",
+                step=1, value=0, key="signup_captcha_answer"
+            )
 
             if st.form_submit_button("Create My Academy Account", use_container_width=True):
                 clean_s_email = s_email.strip().lower()
-                if s_institute.strip() and clean_s_email and s_pass.strip():
+                correct_answer = st.session_state.signup_captcha_a + st.session_state.signup_captcha_b
+
+                if s_honeypot.strip():
+                    # Don't reveal that a honeypot exists — a generic error
+                    # keeps a bot from learning what tripped it.
+                    st.error("Something went wrong. Please try again.")
+                elif captcha_answer != correct_answer:
+                    st.warning("That answer isn't quite right — please try the math check again.")
+                    st.session_state.signup_captcha_a = secrets.randbelow(9) + 1
+                    st.session_state.signup_captcha_b = secrets.randbelow(9) + 1
+                elif s_institute.strip() and clean_s_email and s_pass.strip():
                     if not is_valid_email(clean_s_email):
                         st.warning("Please enter a valid email address.")
                     elif not is_password_strong_enough(s_pass):
                         st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
-                        try:
-                            st.toast("Creating your academy…", icon="⏳")
-                            with st.spinner("Creating your academy…"):
-                                create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
-                            st.success(
-                                f"Account created! '{s_institute.strip()}' is live on the Free plan "
-                                f"(up to {FREE_STUDENT_LIMIT} students). Please log in above."
-                            )
-                        except (ValueError, sqlite3.IntegrityError):
-                            st.error("An account with that email already exists. Please log in instead.")
+                        allowed, rate_msg = check_signup_rate_limit(conn)
+                        if not allowed:
+                            st.error(rate_msg)
+                        else:
+                            try:
+                                st.toast("Creating your academy…", icon="⏳")
+                                with st.spinner("Creating your academy…"):
+                                    create_institute_and_admin(conn, s_institute.strip(), clean_s_email, s_pass)
+                                    record_signup_attempt(conn)
+                                st.success(
+                                    f"Account created! '{s_institute.strip()}' is live on the Free plan "
+                                    f"(up to {FREE_STUDENT_LIMIT} students). Please log in above."
+                                )
+                                st.session_state.signup_captcha_a = secrets.randbelow(9) + 1
+                                st.session_state.signup_captcha_b = secrets.randbelow(9) + 1
+                            except (ValueError, sqlite3.IntegrityError):
+                                st.error("An account with that email already exists. Please log in instead.")
                 else:
                     st.warning("Please fill in all fields.")
 
@@ -1993,6 +2104,10 @@ def show_admin_dashboard():
 
     st.write("---")
 
+    # Fetched once and reused below for both the summary metrics and the
+    # roster table/search — plus one bulk payment-status query instead of
+    # calling get_payment_status() once per student (the same N+1 pattern
+    # fixed on the Teacher Desk's Financial tab).
     all_students = list_students(conn, institute_id)
     enrolled_count = len(all_students)
     total_rev = sum(s.get("fee", 0) for s in all_students)
