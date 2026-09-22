@@ -637,13 +637,18 @@ def get_institute(conn, institute_id: int):
     return dict(row) if row else None
 
 def list_institutes(conn):
+    """Same fix as get_payment_statuses_bulk: one query for all institutes'
+    student counts via GROUP BY, instead of one COUNT(*) query per institute
+    in a loop — matters more every month as more institutes sign up."""
     rows = conn.execute("SELECT * FROM institutes ORDER BY id").fetchall()
+    count_rows = conn.execute(
+        "SELECT institute_id, COUNT(*) as cnt FROM students WHERE (is_deleted IS NULL OR is_deleted=0) GROUP BY institute_id"
+    ).fetchall()
+    counts_by_institute = {r["institute_id"]: r["cnt"] for r in count_rows}
     result = []
     for r in rows:
         d = dict(r)
-        d["student_count"] = conn.execute(
-            "SELECT COUNT(*) FROM students WHERE institute_id=? AND (is_deleted IS NULL OR is_deleted=0)", (d["id"],)
-        ).fetchone()[0]
+        d["student_count"] = counts_by_institute.get(d["id"], 0)
         result.append(d)
     return result
 
@@ -839,6 +844,18 @@ def get_payment_status(conn, institute_id: int, student_id: str) -> str:
         "SELECT status FROM payment_status WHERE student_id=? AND institute_id=?", (student_id, institute_id)
     ).fetchone()
     return row["status"] if row else "Unpaid"
+
+def get_payment_statuses_bulk(conn, institute_id: int) -> dict:
+    """Fetches every student's payment status for this institute in ONE
+    query, instead of calling get_payment_status() once per student in a
+    loop. That N+1 pattern was showing up 3x on the Financial Desk alone
+    (total collected, the status-update form, the unpaid list) plus once
+    more on the Admin dashboard — with 15 students that's ~60 separate
+    Turso round-trips to render a single page. This cuts it to 1."""
+    rows = conn.execute(
+        "SELECT student_id, status FROM payment_status WHERE institute_id=?", (institute_id,)
+    ).fetchall()
+    return {r["student_id"]: r["status"] for r in rows}
 
 def _next_tx_id(conn, institute_id: int) -> str:
     # Same "highest number used, not row count" logic as student IDs — scoped
@@ -1702,9 +1719,10 @@ def show_teacher_dashboard():
         st.subheader("Tuition Fee Management")
 
         if all_students:
+            payment_statuses = get_payment_statuses_bulk(conn, institute_id)
             total_expected = sum(s.get("fee", 0) for s in all_students)
             total_collected = sum(
-                s.get("fee", 0) for s in all_students if get_payment_status(conn, institute_id, s["id"]) == "Paid"
+                s.get("fee", 0) for s in all_students if payment_statuses.get(s["id"], "Unpaid") == "Paid"
             )
             total_due = total_expected - total_collected
 
@@ -1721,7 +1739,7 @@ def show_teacher_dashboard():
                 new_statuses = {}
                 for student in all_students:
                     s_id = student["id"]
-                    current_val = get_payment_status(conn, institute_id, s_id)
+                    current_val = payment_statuses.get(s_id, "Unpaid")
 
                     f_col1, f_col2 = st.columns([3, 2])
                     with f_col1:
@@ -1753,7 +1771,7 @@ def show_teacher_dashboard():
 
             st.write("---")
 
-            unpaid_students = [s for s in all_students if get_payment_status(conn, institute_id, s["id"]) == "Unpaid"]
+            unpaid_students = [s for s in all_students if payment_statuses.get(s["id"], "Unpaid") == "Unpaid"]
             if unpaid_students:
                 st.markdown(f"""
                 <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 10px; padding: 12px 16px;">
@@ -1978,7 +1996,8 @@ def show_admin_dashboard():
     all_students = list_students(conn, institute_id)
     enrolled_count = len(all_students)
     total_rev = sum(s.get("fee", 0) for s in all_students)
-    total_collected = sum(s.get("fee", 0) for s in all_students if get_payment_status(conn, institute_id, s["id"]) == "Paid")
+    admin_payment_statuses = get_payment_statuses_bulk(conn, institute_id)
+    total_collected = sum(s.get("fee", 0) for s in all_students if admin_payment_statuses.get(s["id"], "Unpaid") == "Paid")
 
     m_col1, m_col2, m_col3 = st.columns(3)
     with m_col1:
