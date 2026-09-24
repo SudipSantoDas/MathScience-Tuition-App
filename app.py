@@ -61,7 +61,7 @@ MIN_PASSWORD_LENGTH = 8
 # before — nothing else in the app depends on Razorpay being configured.
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
-PREMIUM_UPGRADE_AMOUNT_INR = int(os.environ.get("PREMIUM_UPGRADE_AMOUNT_INR", "999"))
+PREMIUM_UPGRADE_AMOUNT_INR = int(os.environ.get("PREMIUM_UPGRADE_AMOUNT_INR", "99"))
 
 def razorpay_configured() -> bool:
     return bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
