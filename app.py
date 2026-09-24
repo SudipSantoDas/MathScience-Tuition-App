@@ -9,6 +9,9 @@ import html
 import csv
 import io
 import re
+import json
+import urllib.request
+import urllib.error
 
 # ----------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -41,6 +44,52 @@ SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "true").strip().
 
 # Minimum acceptable password length, enforced everywhere a password is set.
 MIN_PASSWORD_LENGTH = 8
+
+# ----------------------------------------------------
+# 1B2. RAZORPAY CONFIGURATION (self-serve Premium upgrade)
+# ----------------------------------------------------
+# Set these as environment variables (Streamlit Cloud -> Settings -> Secrets)
+# to let an Admin upgrade their own institute to Premium by paying online,
+# instead of the fully-manual "UPI/bank transfer, then Super Admin flips it"
+# flow. Get key_id/key_secret from Razorpay Dashboard -> Settings -> API Keys.
+# Currently configured with TEST keys (rzp_test_...) — Razorpay's test mode
+# lets a full payment run with a fake card, no real money moves. Swap in
+# LIVE keys (rzp_live_...) once the flow has been verified end to end; no
+# code change is needed for that, just the secret values. If these are left
+# unset, the self-serve widget simply doesn't appear and the existing manual
+# banner (pay the owner directly, they flip you) keeps working exactly as
+# before — nothing else in the app depends on Razorpay being configured.
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+PREMIUM_UPGRADE_AMOUNT_INR = int(os.environ.get("PREMIUM_UPGRADE_AMOUNT_INR", "999"))
+
+def razorpay_configured() -> bool:
+    return bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
+
+def _razorpay_request(method: str, path: str, payload: dict | None = None) -> dict:
+    """Minimal Razorpay REST API client using only the stdlib (urllib) so this
+    doesn't add a new pip dependency to the project. Raises RuntimeError with
+    a human-readable message on any failure (bad keys, network issue, a
+    Razorpay-side validation error) — callers show that message directly to
+    the Admin instead of a raw traceback."""
+    url = f"https://api.razorpay.com/v1{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    auth = base64.b64encode(f"{RAZORPAY_KEY_ID}:{RAZORPAY_KEY_SECRET}".encode()).decode()
+    req.add_header("Authorization", f"Basic {auth}")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode())
+            msg = body.get("error", {}).get("description", str(e))
+        except Exception:
+            msg = str(e)
+        raise RuntimeError(f"Razorpay error: {msg}")
+    except Exception as e:
+        raise RuntimeError(f"Could not reach Razorpay: {e}")
 
 # ----------------------------------------------------
 # 1B. TURSO (REMOTE, PERSISTENT DATABASE) CONFIGURATION
@@ -278,6 +327,14 @@ def _create_schema(conn):
     CREATE TABLE IF NOT EXISTS signup_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT
+    );
+    CREATE TABLE IF NOT EXISTS premium_payment_links (
+        link_id TEXT PRIMARY KEY,
+        institute_id INTEGER,
+        amount INTEGER,
+        short_url TEXT,
+        status TEXT,
+        created_at TEXT
     );
     """)
     conn.commit()
@@ -703,6 +760,57 @@ def set_institute_plan(conn, institute_id: int, plan: str, student_limit: int, a
     )
     conn.commit()
     log_audit_event(conn, actor_email, "plan_change", f"Set plan to {plan} (limit {student_limit})", institute_id)
+
+def get_or_create_premium_payment_link(conn, institute_id: int, institute_name: str, admin_email: str) -> dict:
+    """Reuses an existing not-yet-paid Razorpay payment link for this
+    institute if one exists (so clicking 'Upgrade' repeatedly doesn't spam
+    Razorpay with new links every time), otherwise creates a fresh one via
+    the Payment Links API. Raises RuntimeError (from _razorpay_request) on
+    any failure — callers show that message directly."""
+    existing = conn.execute(
+        "SELECT * FROM premium_payment_links WHERE institute_id=? AND status='created' ORDER BY created_at DESC LIMIT 1",
+        (institute_id,),
+    ).fetchone()
+    if existing:
+        return dict(existing)
+
+    payload = {
+        "amount": PREMIUM_UPGRADE_AMOUNT_INR * 100,  # Razorpay wants paise, not rupees
+        "currency": "INR",
+        "description": f"Premium upgrade — {institute_name}",
+        "reference_id": f"premium-{institute_id}-{int(datetime.datetime.now().timestamp())}",
+        "notify": {"sms": False, "email": False},
+        "reminder_enable": False,
+    }
+    if admin_email:
+        payload["customer"] = {"email": admin_email}
+
+    result = _razorpay_request("POST", "/payment_links", payload)
+    created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "INSERT INTO premium_payment_links(link_id, institute_id, amount, short_url, status, created_at) VALUES (?,?,?,?,?,?)",
+        (result["id"], institute_id, PREMIUM_UPGRADE_AMOUNT_INR, result["short_url"], result.get("status", "created"), created_at),
+    )
+    conn.commit()
+    return {
+        "link_id": result["id"], "institute_id": institute_id, "amount": PREMIUM_UPGRADE_AMOUNT_INR,
+        "short_url": result["short_url"], "status": result.get("status", "created"), "created_at": created_at,
+    }
+
+def refresh_premium_payment_link_status(conn, institute_id: int, link_id: str, actor_email: str) -> str:
+    """Polls Razorpay for the current status of one payment link and, the
+    moment it's fully paid, flips the institute to Premium automatically —
+    the closest a Streamlit app (no public webhook endpoint to receive
+    Razorpay's server-to-server confirmation) can get to 'payment succeeds
+    -> plan upgrades' without extra hosting infrastructure."""
+    result = _razorpay_request("GET", f"/payment_links/{link_id}")
+    status = result.get("status", "created")
+    conn.execute("UPDATE premium_payment_links SET status=? WHERE link_id=?", (status, link_id))
+    conn.commit()
+    if status == "paid":
+        set_institute_plan(conn, institute_id, "Premium", 999999, actor_email=actor_email)
+        log_audit_event(conn, actor_email, "premium_self_upgrade", f"Paid via Razorpay link {link_id}", institute_id)
+    return status
 
 def count_students(conn, institute_id: int) -> int:
     return conn.execute(
@@ -1377,6 +1485,54 @@ def render_plan_banner(institute_id: int):
         <span style="color: #94a3b8;"> Need more? Pay the platform owner directly (UPI/bank transfer) and ask to be upgraded to Premium — it's a manual flip on their end, usually same-day.</span>
     </div>
     """, unsafe_allow_html=True)
+
+def render_premium_upgrade_widget(institute_id: int, institute_name: str, admin_email: str):
+    """Self-serve Premium upgrade via a real Razorpay payment link — shown
+    only for Free-plan institutes, and only when Razorpay keys are actually
+    configured. If they aren't, this renders nothing and the manual banner
+    above (pay the owner directly) remains the only upgrade path, exactly as
+    before this feature existed."""
+    plan = st.session_state.get("institute_plan", "Free")
+    if plan == "Premium" or not razorpay_configured():
+        return
+
+    st.markdown(f"#### 💳 Upgrade to Premium — pay online (₹{PREMIUM_UPGRADE_AMOUNT_INR})")
+    st.caption("Unlocks unlimited students immediately once your payment clears.")
+
+    pending = conn.execute(
+        "SELECT * FROM premium_payment_links WHERE institute_id=? AND status='created' ORDER BY created_at DESC LIMIT 1",
+        (institute_id,),
+    ).fetchone()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        button_label = "🔄 Get New Payment Link" if pending else "💳 Generate Payment Link"
+        if st.button(button_label, use_container_width=True, key="gen_premium_link"):
+            try:
+                st.toast("Creating payment link…", icon="⏳")
+                with st.spinner("Creating payment link…"):
+                    get_or_create_premium_payment_link(conn, institute_id, institute_name, admin_email)
+                st.rerun()
+            except RuntimeError as e:
+                st.error(str(e))
+    with col2:
+        if pending and st.button("✅ I've Paid — Check Status", use_container_width=True, key="check_premium_link"):
+            try:
+                st.toast("Checking with Razorpay…", icon="⏳")
+                with st.spinner("Checking with Razorpay…"):
+                    status = refresh_premium_payment_link_status(conn, institute_id, pending["link_id"], admin_email)
+                if status == "paid":
+                    st.success("Payment confirmed! You're now on Premium.")
+                    st.rerun()
+                else:
+                    st.info(f"Not received yet (status: {status}). Complete the payment, then check again.")
+            except RuntimeError as e:
+                st.error(str(e))
+
+    if pending:
+        st.markdown(f"[👉 Click here to pay ₹{PREMIUM_UPGRADE_AMOUNT_INR}]({pending['short_url']})")
+
+    st.write("---")
 
 def refresh_institute_session(institute_id: int):
     """Re-reads plan/limit from the DB into session_state on every dashboard
@@ -2089,6 +2245,7 @@ def show_admin_dashboard():
     render_header("Admin Master Console", f"{institute_name} • Executive Management")
 
     render_plan_banner(institute_id)
+    render_premium_upgrade_widget(institute_id, institute_name, st.session_state.get("user_email", ""))
 
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
