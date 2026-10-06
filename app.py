@@ -35,13 +35,12 @@ FREE_STUDENT_LIMIT = 15
 # deploy so the seeded account isn't the public default. After that first run,
 # use the in-app "Change Password" form in the Super Admin console instead —
 # these env vars won't touch an already-seeded account on later restarts.
-SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "").strip().lower()
-SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "")
+SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "owner@platform.com")
+SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "owner123")
 
 # Set SHOW_DEMO_CREDENTIALS=false in production deploys to hide the demo
 # login hints on the public login screen (they're handy for local dev only).
-SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "false").strip().lower() == "true"
-DEMO_MODE = os.environ.get("DEMO_MODE", "false").strip().lower() == "true"
+SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "true").strip().lower() != "false"
 
 # Minimum acceptable password length, enforced everywhere a password is set.
 MIN_PASSWORD_LENGTH = 8
@@ -49,6 +48,17 @@ MIN_PASSWORD_LENGTH = 8
 # ----------------------------------------------------
 # 1B2. RAZORPAY CONFIGURATION (self-serve Premium upgrade)
 # ----------------------------------------------------
+# Set these as environment variables (Streamlit Cloud -> Settings -> Secrets)
+# to let an Admin upgrade their own institute to Premium by paying online,
+# instead of the fully-manual "UPI/bank transfer, then Super Admin flips it"
+# flow. Get key_id/key_secret from Razorpay Dashboard -> Settings -> API Keys.
+# Currently configured with TEST keys (rzp_test_...) — Razorpay's test mode
+# lets a full payment run with a fake card, no real money moves. Swap in
+# LIVE keys (rzp_live_...) once the flow has been verified end to end; no
+# code change is needed for that, just the secret values. If these are left
+# unset, the self-serve widget simply doesn't appear and the existing manual
+# banner (pay the owner directly, they flip you) keeps working exactly as
+# before — nothing else in the app depends on Razorpay being configured.
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 PREMIUM_UPGRADE_AMOUNT_INR = int(os.environ.get("PREMIUM_UPGRADE_AMOUNT_INR", "999"))
@@ -57,6 +67,11 @@ def razorpay_configured() -> bool:
     return bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
 
 def _razorpay_request(method: str, path: str, payload: dict | None = None) -> dict:
+    """Minimal Razorpay REST API client using only the stdlib (urllib) so this
+    doesn't add a new pip dependency to the project. Raises RuntimeError with
+    a human-readable message on any failure (bad keys, network issue, a
+    Razorpay-side validation error) — callers show that message directly to
+    the Admin instead of a raw traceback."""
     url = f"https://api.razorpay.com/v1{path}"
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(url, data=data, method=method)
@@ -79,6 +94,11 @@ def _razorpay_request(method: str, path: str, payload: dict | None = None) -> di
 # ----------------------------------------------------
 # 1B. TURSO (REMOTE, PERSISTENT DATABASE) CONFIGURATION
 # ----------------------------------------------------
+# If these two secrets are set (Streamlit Cloud -> Settings -> Secrets), the
+# app stores everything in a real hosted Turso database instead of a local
+# SQLite file that can be wiped whenever the container restarts. If they are
+# NOT set, the app falls back to the old local-file behavior automatically —
+# nothing breaks, it's just not durable across restarts.
 TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "")
 TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
 USE_TURSO = bool(TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
@@ -86,7 +106,14 @@ USE_TURSO = bool(TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
 # ----------------------------------------------------
 # 1C. TURSO COMPATIBILITY LAYER
 # ----------------------------------------------------
+# Every function in this file was written against the plain sqlite3 API
+# (conn.execute(...).fetchone(), row["col"], dict(row), etc). Rather than
+# rewrite all of that, these thin wrappers make a remote libSQL connection
+# quack like a sqlite3 connection, so nothing below this section needs to
+# know or care which backend it's actually talking to.
+
 class _CompatRow:
+    """Makes a plain tuple row support row['col'] and dict(row), like sqlite3.Row."""
     def __init__(self, columns, values):
         self._columns = columns
         self._values = list(values)
@@ -132,6 +159,8 @@ class _CompatCursor:
         return [self._wrap(r) for r in self._raw.fetchall()]
 
 class _TursoConnWrapper:
+    """Wraps a raw libsql connection so it behaves like sqlite3.Connection
+    for every call pattern used elsewhere in this file."""
     def __init__(self, raw_conn):
         self._raw = raw_conn
 
@@ -144,6 +173,10 @@ class _TursoConnWrapper:
             self._raw.execute(sql, params)
 
     def executescript(self, script: str):
+        # libSQL's remote client doesn't support multi-statement scripts the
+        # way sqlite3 does, so split on ';' and run each statement alone.
+        # Safe here because our schema statements never contain a literal
+        # semicolon inside a string value.
         for statement in script.split(";"):
             statement = statement.strip()
             if statement:
@@ -153,11 +186,17 @@ class _TursoConnWrapper:
         try:
             self._raw.commit()
         except Exception as e:
+            # Some libsql modes auto-commit and don't support commit() at all —
+            # that case is fine to ignore. But a genuine write failure here
+            # would otherwise vanish silently, so at least surface it.
             st.warning(f"Database commit warning: {e}")
 
 # ----------------------------------------------------
 # 2. PASSWORD HASHING
 # ----------------------------------------------------
+# PBKDF2-HMAC-SHA256 with a per-user random salt (stdlib only, no extra deps).
+# Stored as "<salt_hex>$<hash_hex>".
+
 def hash_password(password: str, salt_hex: str | None = None) -> str:
     if salt_hex is None:
         salt_hex = secrets.token_hex(16)
@@ -172,23 +211,20 @@ def verify_password(password: str, stored: str) -> bool:
     return secrets.compare_digest(hash_password(password, salt_hex), stored)
 
 def is_password_strong_enough(password: str) -> bool:
-    if not password or len(password) < MIN_PASSWORD_LENGTH:
-        return False
-    return (
-        any(c.islower() for c in password)
-        and any(c.isupper() for c in password)
-        and any(c.isdigit() for c in password)
-        and any(not c.isalnum() for c in password)
-    )
+    return bool(password) and len(password) >= MIN_PASSWORD_LENGTH
 
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 def is_valid_email(email: str) -> bool:
+    """Deliberately simple check (not a full RFC 5322 validator) — just
+    enough to catch obvious typos and junk input at account-creation time."""
     return bool(email) and bool(_EMAIL_PATTERN.match(email))
 
 # ----------------------------------------------------
-# 3. DATABASE LAYER
+# 3. DATABASE LAYER (SQLite — persists on disk, shared across everyone
+#    who connects to this app, unlike the old per-browser session_state)
 # ----------------------------------------------------
+
 @st.cache_resource
 def get_connection():
     if USE_TURSO:
@@ -206,6 +242,9 @@ def get_connection():
     return conn
 
 def _ensure_column(conn, table: str, column: str, coltype: str):
+    """Adds a column to an existing table if it isn't there yet (simple migration helper).
+    Wrapped in try/except because PRAGMA support can vary on a remote backend —
+    if this can't be checked, we skip rather than crash the whole app."""
     try:
         existing_cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in existing_cols:
@@ -215,6 +254,7 @@ def _ensure_column(conn, table: str, column: str, coltype: str):
         st.warning(f"Could not verify/add column '{column}' on '{table}': {e}")
 
 def _create_schema(conn):
+    """Creates every table if it doesn't already exist. Safe to call repeatedly."""
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS institutes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -296,24 +336,14 @@ def _create_schema(conn):
         status TEXT,
         created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS fee_payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        institute_id INTEGER NOT NULL,
-        student_id TEXT NOT NULL,
-        billing_month TEXT NOT NULL,
-        amount INTEGER NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'Unpaid',
-        paid_date TEXT,
-        method TEXT,
-        reference TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        UNIQUE(institute_id, student_id, billing_month)
-    );
     """)
     conn.commit()
 
 def _ensure_multitenancy_columns(conn):
+    """Adds the institute_id / is_super_admin columns to every table. Safe to
+    call repeatedly (no-op once columns exist). Must run on the TARGET
+    database before any row copy that includes these columns — otherwise
+    the copy fails because the destination table doesn't have them yet."""
     _ensure_column(conn, "financial_records", "student_id", "TEXT")
     _ensure_column(conn, "users", "institute_id", "INTEGER")
     _ensure_column(conn, "users", "is_super_admin", "INTEGER DEFAULT 0")
@@ -325,25 +355,29 @@ def _ensure_multitenancy_columns(conn):
     _ensure_column(conn, "notices", "institute_id", "INTEGER")
     _ensure_column(conn, "notices", "target_grade", "TEXT")
     _ensure_column(conn, "students", "is_deleted", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "financial_records", "billing_month", "TEXT")
-    _ensure_column(conn, "financial_records", "reference", "TEXT")
-    _ensure_column(conn, "financial_records", "actor_email", "TEXT")
-    _ensure_column(conn, "users", "must_change_password", "INTEGER DEFAULT 0")
 
 def _migrate_local_file_into_turso_if_needed(turso_conn):
+    """One-time safety net: if this is the first time we're connecting to
+    Turso and a real local academy.db file exists on this machine (from
+    before the Turso switch), copy every row across so nothing is lost.
+    Does nothing if Turso already has institutes (already migrated), or if
+    there's no local file to copy from."""
     if not os.path.exists(DB_PATH):
         return
+
     try:
         existing = turso_conn.execute("SELECT COUNT(*) FROM institutes").fetchone()
         if existing and existing[0] > 0:
-            return
+            return  # Turso already has data — never overwrite it
     except Exception:
-        pass
+        pass  # institutes table may not exist yet on a brand new Turso db; continue
+
     try:
         local = sqlite3.connect(DB_PATH)
         local.row_factory = sqlite3.Row
     except Exception:
         return
+
     tables = ["institutes", "users", "students", "classrooms", "attendance",
               "payment_status", "financial_records", "notices"]
     copied_any = False
@@ -365,16 +399,24 @@ def _migrate_local_file_into_turso_if_needed(turso_conn):
                 copied_any = True
         except Exception as e:
             st.warning(f"Could not migrate table '{table}' to Turso: {e}")
+
     turso_conn.commit()
     local.close()
     if copied_any:
         st.success("✅ Existing local data was migrated into your Turso database.")
 
 def _last_insert_id(conn) -> int:
+    """Works the same whether conn is a plain sqlite3 connection or the Turso
+    wrapper — avoids relying on cursor.lastrowid, which the Turso wrapper's
+    cursor doesn't provide."""
     row = conn.execute("SELECT last_insert_rowid()").fetchone()
     return row[0] if row else None
 
 def log_audit_event(conn, actor_email: str, action: str, details: str = "", institute_id: int | None = None):
+    """Records a Super-Admin-level action (plan change, password reset, etc.)
+    so there's a record of who did what and when if it's ever disputed.
+    Best-effort: an audit-log failure should never block the underlying
+    action, so this swallows its own errors rather than raising."""
     try:
         conn.execute(
             "INSERT INTO audit_log(timestamp, actor_email, action, details, institute_id) VALUES (?,?,?,?,?)",
@@ -385,6 +427,8 @@ def log_audit_event(conn, actor_email: str, action: str, details: str = "", inst
         st.warning(f"Could not record audit log entry: {e}")
 
 def list_audit_log(conn, institute_id: int | None = None, limit: int = 200):
+    """institute_id=None returns the full platform-wide log (Super Admin view).
+    Pass an institute_id to scope it to just that institute's own actions."""
     if institute_id is not None:
         rows = conn.execute(
             "SELECT * FROM audit_log WHERE institute_id=? ORDER BY id DESC LIMIT ?",
@@ -399,6 +443,10 @@ def list_audit_log(conn, institute_id: int | None = None, limit: int = 200):
 def init_db(conn):
     _ensure_multitenancy_columns(conn)
 
+    # ---- Safety net: if this is an existing single-academy database (rows
+    # exist with institute_id still NULL), fold ALL of that real data into
+    # one grandfathered "legacy" institute instead of treating it as demo
+    # data or leaving it orphaned/invisible. This runs at most once per DB. ----
     legacy_users = conn.execute(
         "SELECT COUNT(*) FROM users WHERE institute_id IS NULL AND (is_super_admin IS NULL OR is_super_admin=0)"
     ).fetchone()[0]
@@ -432,7 +480,9 @@ def init_db(conn):
             conn.execute(f"UPDATE {table} SET institute_id=? WHERE institute_id IS NULL", (legacy_institute_id,))
         conn.commit()
 
-    if DEMO_MODE and conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
+    # ---- Brand-new install (no institutes at all yet): seed one demo
+    # institute with the original demo accounts/students, exactly like before. ----
+    if conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
         cur = conn.execute(
             "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
             ("Demo Academy", "admin@academy.com", "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
@@ -476,42 +526,34 @@ def init_db(conn):
         )
         conn.commit()
 
-    # One-time migration of legacy Paid/Unpaid flags into the current billing cycle.
-    for inst_row in conn.execute("SELECT id FROM institutes").fetchall():
-        inst_id = inst_row["id"]
-        legacy_rows = conn.execute("SELECT student_id, status FROM payment_status WHERE institute_id=?", (inst_id,)).fetchall()
-        for legacy in legacy_rows:
-            student = get_student(conn, inst_id, legacy["student_id"]) if "get_student" in globals() else None
-            if not student:
-                continue
-            exists = conn.execute("SELECT 1 FROM fee_payments WHERE institute_id=? AND student_id=? AND billing_month=?", (inst_id, legacy["student_id"], current_billing_month())).fetchone()
-            if not exists:
-                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                conn.execute("INSERT INTO fee_payments(institute_id, student_id, billing_month, amount, status, paid_date, method, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)", (inst_id, legacy["student_id"], current_billing_month(), int(student.get("fee") or 0), legacy["status"], datetime.date.today().strftime("%Y-%m-%d") if legacy["status"] == "Paid" else None, "Legacy Fee Status" if legacy["status"] == "Paid" else None, now, now))
-    conn.commit()
-
+    # ---- Ensure a Super Admin (platform owner) account always exists.
+    # Not tied to any institute — this is you, managing the whole platform. ----
     if conn.execute("SELECT COUNT(*) FROM users WHERE is_super_admin=1").fetchone()[0] == 0:
-        if not SUPER_ADMIN_EMAIL or not SUPER_ADMIN_PASSWORD:
-            if conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
-                # A fresh production deployment can still start so the owner can configure secrets.
-                st.warning("SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD are not configured. Set them in Streamlit Secrets before creating the first platform-owner account.")
-            else:
-                st.warning("No Super Admin exists. Configure SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD, then restart the app.")
-        elif not is_valid_email(SUPER_ADMIN_EMAIL) or not is_password_strong_enough(SUPER_ADMIN_PASSWORD):
-            raise RuntimeError("SUPER_ADMIN_EMAIL must be valid and SUPER_ADMIN_PASSWORD must be 8+ chars with upper/lowercase, number and special character.")
-        else:
-            conn.execute(
-                "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,1)",
-                (SUPER_ADMIN_EMAIL, hash_password(SUPER_ADMIN_PASSWORD), "Admin", None),
-            )
-            conn.commit()
+        conn.execute(
+            "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,1)",
+            (SUPER_ADMIN_EMAIL, hash_password(SUPER_ADMIN_PASSWORD), "Admin", None),
+        )
+        conn.commit()
 
 # ---- Auth ----
+
+# After this many failed attempts for one email, block further tries for
+# LOGIN_LOCKOUT_MINUTES. Keyed by email (not IP, which Streamlit doesn't
+# expose) so it stops repeated guessing against one account, not a general
+# rate limit on the login page itself.
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_MINUTES = 15
+
+# Platform-wide cap on new institute signups per hour. This isn't per-person
+# (Streamlit doesn't expose the visitor's IP by default), so it's a blunt
+# instrument — but it stops a runaway script from flooding the platform with
+# junk institutes, which per-IP limiting wouldn't fully prevent either since
+# IPs are easy to rotate. Real bursts of legitimate signups (a marketing
+# push, say) are rare enough that this ceiling is unlikely to get in the way.
 SIGNUP_MAX_PER_HOUR = 10
 
 def _ensure_signup_log_table(conn):
+    """Self-healing, same pattern as _ensure_login_attempts_table."""
     try:
         conn.execute("CREATE TABLE IF NOT EXISTS signup_log (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT)")
         conn.commit()
@@ -519,6 +561,8 @@ def _ensure_signup_log_table(conn):
         pass
 
 def check_signup_rate_limit(conn):
+    """Returns (allowed: bool, message: str|None). Fails OPEN on any error —
+    a rate-limit check going down must never block a real signup."""
     try:
         _ensure_signup_log_table(conn)
         one_hour_ago = (datetime.datetime.now() - datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -542,6 +586,10 @@ def record_signup_attempt(conn):
         pass
 
 def _ensure_login_attempts_table(conn):
+    """Self-healing: (re)creates login_attempts on the fly if it's ever
+    missing on the active backend (seen in practice on Turso — a schema
+    statement can occasionally not land on first connect). Safe to call
+    on every login-lockout check; it's a no-op once the table exists."""
     try:
         conn.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
             email TEXT PRIMARY KEY, failed_count INTEGER DEFAULT 0, locked_until TEXT
@@ -551,6 +599,12 @@ def _ensure_login_attempts_table(conn):
         pass
 
 def check_login_lock(conn, email: str):
+    """Returns (is_locked: bool, seconds_remaining: int). This is a
+    nice-to-have anti-brute-force check, not core to login working at all —
+    so any problem reaching login_attempts (missing table, a flaky remote
+    connection) must never crash the login page. On any error, this fails
+    OPEN (treats the account as not locked) rather than blocking everyone
+    from logging in."""
     try:
         _ensure_login_attempts_table(conn)
         row = conn.execute("SELECT locked_until FROM login_attempts WHERE email=?", (email,)).fetchone()
@@ -568,6 +622,9 @@ def check_login_lock(conn, email: str):
     return False, 0
 
 def record_failed_login(conn, email: str):
+    """Best-effort: if this fails (e.g. the table momentarily isn't
+    reachable), the failed attempt just isn't counted — it must never
+    prevent the 'Invalid email or password' message from showing."""
     try:
         _ensure_login_attempts_table(conn)
         row = conn.execute("SELECT failed_count FROM login_attempts WHERE email=?", (email,)).fetchone()
@@ -575,7 +632,7 @@ def record_failed_login(conn, email: str):
         locked_until = None
         if failed_count >= LOGIN_MAX_ATTEMPTS:
             locked_until = (datetime.datetime.now() + datetime.timedelta(minutes=LOGIN_LOCKOUT_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
-            failed_count = 0
+            failed_count = 0  # reset the counter once locked, so the next window starts fresh
         conn.execute(
             """INSERT INTO login_attempts(email, failed_count, locked_until) VALUES (?,?,?)
                ON CONFLICT(email) DO UPDATE SET failed_count=excluded.failed_count, locked_until=excluded.locked_until""",
@@ -586,6 +643,8 @@ def record_failed_login(conn, email: str):
         pass
 
 def clear_failed_login(conn, email: str):
+    """Best-effort cleanup after a successful login — a failure here must
+    never block the person from actually reaching their dashboard."""
     try:
         _ensure_login_attempts_table(conn)
         conn.execute("DELETE FROM login_attempts WHERE email=?", (email,))
@@ -593,32 +652,21 @@ def clear_failed_login(conn, email: str):
     except Exception:
         pass
 
-def update_password(conn, email: str, new_password: str, force_change: bool = False):
-    conn.execute("UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_password), email))
-    try:
-        conn.execute(
-            "UPDATE users SET must_change_password=? WHERE email=?",
-            (1 if force_change else 0, email),
-        )
-    except Exception:
-        # Keep password changes working with older databases that lack the
-        # optional migration column.
-        pass
+def update_password(conn, email: str, new_password: str):
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_password), email)
+    )
     conn.commit()
 
 def authenticate(conn, email: str, password: str):
-    # Backward-compatible login: older databases do not necessarily have
-    # the newer must_change_password column. Login must never depend on it.
     row = conn.execute(
-        "SELECT password_hash, role, institute_id, is_super_admin FROM users WHERE email=?",
-        (email,),
+        "SELECT password_hash, role, institute_id, is_super_admin FROM users WHERE email=?", (email,)
     ).fetchone()
     if row and verify_password(password, row["password_hash"]):
         return {
             "role": row["role"],
             "institute_id": row["institute_id"],
-            "is_super_admin": bool(row.get("is_super_admin", 0)),
-            "must_change_password": bool(row.get("must_change_password", 0)),
+            "is_super_admin": bool(row["is_super_admin"]),
         }
     return None
 
@@ -627,10 +675,6 @@ def create_user_account(conn, institute_id: int, email: str, password: str, role
         "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
         (email, hash_password(password), role, institute_id),
     )
-    try:
-        conn.execute("UPDATE users SET must_change_password=1 WHERE email=?", (email,))
-    except Exception:
-        pass
     conn.commit()
 
 def list_accounts_by_role(conn, institute_id: int, role: str):
@@ -663,7 +707,11 @@ def delete_teacher_account(conn, institute_id: int, email: str):
     delete_account(conn, institute_id, email, "Teacher")
 
 # ---- Institutes (multi-tenancy) ----
+
 def create_institute_and_admin(conn, institute_name: str, owner_email: str, password: str):
+    """Raises sqlite3.IntegrityError (or the Turso backend's equivalent) if
+    owner_email is already registered — callers must catch broadly, since the
+    remote Turso client does not necessarily raise sqlite3.IntegrityError."""
     existing = conn.execute("SELECT 1 FROM users WHERE email=?", (owner_email,)).fetchone()
     if existing:
         raise ValueError("An account with that email already exists.")
@@ -678,6 +726,8 @@ def create_institute_and_admin(conn, institute_name: str, owner_email: str, pass
             (owner_email, hash_password(password), "Admin", institute_id),
         )
     except Exception:
+        # Someone else's signup won the race between our check and this
+        # insert — roll back the orphaned institute row we just created.
         conn.execute("DELETE FROM institutes WHERE id=?", (institute_id,))
         conn.commit()
         raise ValueError("An account with that email already exists.")
@@ -689,6 +739,9 @@ def get_institute(conn, institute_id: int):
     return dict(row) if row else None
 
 def list_institutes(conn):
+    """Same fix as get_payment_statuses_bulk: one query for all institutes'
+    student counts via GROUP BY, instead of one COUNT(*) query per institute
+    in a loop — matters more every month as more institutes sign up."""
     rows = conn.execute("SELECT * FROM institutes ORDER BY id").fetchall()
     count_rows = conn.execute(
         "SELECT institute_id, COUNT(*) as cnt FROM students WHERE (is_deleted IS NULL OR is_deleted=0) GROUP BY institute_id"
@@ -709,6 +762,17 @@ def set_institute_plan(conn, institute_id: int, plan: str, student_limit: int, a
     log_audit_event(conn, actor_email, "plan_change", f"Set plan to {plan} (limit {student_limit})", institute_id)
 
 def get_or_create_premium_payment_link(conn, institute_id: int, institute_name: str, admin_email: str, force_new: bool = False) -> dict:
+    """Reuses an existing not-yet-paid Razorpay payment link for this
+    institute if one exists (so clicking 'Upgrade' repeatedly doesn't spam
+    Razorpay with new links every time) — UNLESS force_new=True, which
+    always creates a fresh link regardless of what's pending. This matters
+    because Razorpay locks in the amount at the moment a link is created:
+    changing PREMIUM_UPGRADE_AMOUNT_INR later does NOT retroactively update
+    an already-created link, so reusing one silently would keep charging the
+    old price. Any previously-pending link is marked 'superseded' (not
+    deleted — kept for the audit trail) so it stops showing up as the
+    active one. Raises RuntimeError (from _razorpay_request) on any
+    failure — callers show that message directly."""
     if not force_new:
         existing = conn.execute(
             "SELECT * FROM premium_payment_links WHERE institute_id=? AND status='created' ORDER BY created_at DESC LIMIT 1",
@@ -724,7 +788,7 @@ def get_or_create_premium_payment_link(conn, institute_id: int, institute_name: 
         conn.commit()
 
     payload = {
-        "amount": PREMIUM_UPGRADE_AMOUNT_INR * 100,
+        "amount": PREMIUM_UPGRADE_AMOUNT_INR * 100,  # Razorpay wants paise, not rupees
         "currency": "INR",
         "description": f"Premium upgrade — {institute_name}",
         "reference_id": f"premium-{institute_id}-{int(datetime.datetime.now().timestamp())}",
@@ -747,6 +811,11 @@ def get_or_create_premium_payment_link(conn, institute_id: int, institute_name: 
     }
 
 def refresh_premium_payment_link_status(conn, institute_id: int, link_id: str, actor_email: str) -> str:
+    """Polls Razorpay for the current status of one payment link and, the
+    moment it's fully paid, flips the institute to Premium automatically —
+    the closest a Streamlit app (no public webhook endpoint to receive
+    Razorpay's server-to-server confirmation) can get to 'payment succeeds
+    -> plan upgrades' without extra hosting infrastructure."""
     result = _razorpay_request("GET", f"/payment_links/{link_id}")
     status = result.get("status", "created")
     conn.execute("UPDATE premium_payment_links SET status=? WHERE link_id=?", (status, link_id))
@@ -762,6 +831,7 @@ def count_students(conn, institute_id: int) -> int:
     ).fetchone()[0]
 
 def can_add_student(conn, institute_id: int):
+    """Returns (allowed: bool, message: str|None). Premium institutes have no cap."""
     plan = st.session_state.get("institute_plan", "Free")
     if plan == "Premium":
         return True, None
@@ -775,6 +845,7 @@ def can_add_student(conn, institute_id: int):
     return True, None
 
 # ---- Students ----
+
 def list_students(conn, institute_id: int, parent_email: str | None = None):
     if parent_email:
         rows = conn.execute(
@@ -788,9 +859,19 @@ def list_students(conn, institute_id: int, parent_email: str | None = None):
     return [dict(r) for r in rows]
 
 def _student_id_prefix(institute_id: int) -> str:
+    """Every institute's student IDs are scoped and separated by a dash
+    (STU<institute_id>-<sequence>) so the numeric suffix used for 'what's
+    the next ID' can never be confused with the institute_id itself."""
     return f"STU{institute_id}-"
 
 def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email=None):
+    # Base the next ID on the highest sequence number ever used WITHIN THIS
+    # INSTITUTE, not the current row count (COUNT(*) breaks after a delete)
+    # and not a global platform-wide MAX (which would leak one institute's
+    # growth into another's numbering and force a full-table scan as the
+    # platform grows). The STU<id>- prefix keeps the institute_id and the
+    # sequence number unambiguous so re-reading "the highest number used"
+    # never re-absorbs the institute_id into the count.
     prefix = _student_id_prefix(institute_id)
     row = conn.execute(
         "SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) FROM students WHERE id LIKE ? AND institute_id=?",
@@ -806,6 +887,12 @@ def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email
     return new_id
 
 def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
+    """Inserts many students in one pass for CSV import. Each row needs at
+    least a 'name'; grade/subject/fee/parent_email are optional and default
+    the same way the single-add form does. Computes the starting ID once and
+    increments locally instead of re-querying MAX() per row, then commits
+    once at the end — much cheaper than calling add_student() in a loop,
+    especially over the network on Turso. Returns the number of rows inserted."""
     if not rows:
         return 0
     prefix = _student_id_prefix(institute_id)
@@ -842,21 +929,16 @@ def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
     return inserted
 
 def delete_student(conn, institute_id: int, student_id: str, actor_email: str = ""):
+    """Soft-deletes the student: hides them from every roster/attendance/fee
+    view, but keeps the underlying row (and their attendance + payment
+    history) in the database rather than permanently erasing it. This means
+    an accidental delete — or a parent later disputing a past fee — doesn't
+    destroy the record it would take to sort things out."""
     student = get_student(conn, institute_id, student_id)
     conn.execute("UPDATE students SET is_deleted=1 WHERE id=? AND institute_id=?", (student_id, institute_id))
     conn.commit()
     student_name = student["name"] if student else student_id
-    log_audit_event(conn, actor_email, "student_deleted", f"Archived {student_name} ({student_id})", institute_id)
-
-def restore_student(conn, institute_id: int, student_id: str, actor_email: str = ""):
-    student = conn.execute("SELECT name FROM students WHERE id=? AND institute_id=?", (student_id, institute_id)).fetchone()
-    conn.execute("UPDATE students SET is_deleted=0 WHERE id=? AND institute_id=?", (student_id, institute_id))
-    conn.commit()
-    student_name = student["name"] if student else student_id
-    log_audit_event(conn, actor_email, "student_restored", f"Restored {student_name} ({student_id})", institute_id)
-
-def list_archived_students(conn, institute_id: int):
-    return [dict(r) for r in conn.execute("SELECT * FROM students WHERE institute_id=? AND is_deleted=1 ORDER BY name", (institute_id,)).fetchall()]
+    log_audit_event(conn, actor_email, "student_deleted", f"Removed {student_name} ({student_id})", institute_id)
 
 def update_student_parent_email(conn, institute_id: int, student_id: str, parent_email: str | None):
     conn.execute(
@@ -879,6 +961,7 @@ def get_student(conn, institute_id: int, student_id: str):
     return dict(row) if row else None
 
 # ---- Classrooms ----
+
 def list_classrooms(conn, institute_id: int):
     return [dict(r) for r in conn.execute(
         "SELECT * FROM classrooms WHERE institute_id=? ORDER BY id", (institute_id,)
@@ -892,7 +975,9 @@ def add_classroom(conn, institute_id: int, title, subject, section, fee):
     conn.commit()
 
 # ---- Attendance ----
+
 def save_attendance(conn, institute_id: int, date_str: str, entries: list[dict]):
+    """entries: [{student_id, status, class_name}, ...]"""
     for e in entries:
         conn.execute(
             """INSERT INTO attendance(date, student_id, status, class_name, institute_id) VALUES (?,?,?,?,?)
@@ -902,6 +987,9 @@ def save_attendance(conn, institute_id: int, date_str: str, entries: list[dict])
     conn.commit()
 
 def attendance_for_date(conn, institute_id: int, date_str: str) -> dict:
+    """Returns {student_id: status} for whatever was already recorded on this
+    date, so re-opening a past date shows what's actually saved instead of
+    always defaulting back to all-present."""
     rows = conn.execute(
         "SELECT student_id, status FROM attendance WHERE institute_id=? AND date=?",
         (institute_id, date_str),
@@ -916,40 +1004,32 @@ def attendance_history(conn, institute_id: int, student_id: str):
     return [(r["date"], r["status"]) for r in rows]
 
 # ---- Fees ----
-def current_billing_month() -> str:
-    return datetime.date.today().strftime("%Y-%m")
 
-def ensure_fee_payment(conn, institute_id: int, student: dict, billing_month: str | None = None):
-    month = billing_month or current_billing_month()
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn.execute(
-        """INSERT INTO fee_payments(institute_id, student_id, billing_month, amount, status, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?)
-           ON CONFLICT(institute_id, student_id, billing_month) DO UPDATE SET amount=excluded.amount, updated_at=excluded.updated_at""",
-        (institute_id, student["id"], month, int(student.get("fee") or 0), "Unpaid", now, now),
-    )
-    conn.commit()
-
-def get_payment_status(conn, institute_id: int, student_id: str, billing_month: str | None = None) -> str:
-    month = billing_month or current_billing_month()
+def get_payment_status(conn, institute_id: int, student_id: str) -> str:
     row = conn.execute(
-        "SELECT status FROM fee_payments WHERE student_id=? AND institute_id=? AND billing_month=?",
-        (student_id, institute_id, month),
+        "SELECT status FROM payment_status WHERE student_id=? AND institute_id=?", (student_id, institute_id)
     ).fetchone()
-    if row:
-        return row["status"]
-    return "Unpaid"
+    return row["status"] if row else "Unpaid"
 
-def get_payment_statuses_bulk(conn, institute_id: int, billing_month: str | None = None) -> dict:
-    month = billing_month or current_billing_month()
+def get_payment_statuses_bulk(conn, institute_id: int) -> dict:
+    """One query for every student's payment status in the institute, instead
+    of one round-trip per student. On Turso, calling get_payment_status() in
+    a loop over N students means N separate network round-trips just to
+    render a page — with 15 students called from 3 places on one tab, that's
+    45 round-trips before a single click even finishes. This does it in one.
+    Look up with statuses.get(student_id, "Unpaid") — students with no row
+    yet in payment_status default to Unpaid, same as get_payment_status()."""
     rows = conn.execute(
-        "SELECT student_id, status FROM fee_payments WHERE institute_id=? AND billing_month=?",
-        (institute_id, month),
+        "SELECT student_id, status FROM payment_status WHERE institute_id=?", (institute_id,)
     ).fetchall()
-    result = {r["student_id"]: r["status"] for r in rows}
-    return result
+    return {r["student_id"]: r["status"] for r in rows}
 
 def _next_tx_id(conn, institute_id: int) -> str:
+    # Same "highest number used, not row count" logic as student IDs — scoped
+    # per institute (for the same "avoid leaking growth across institutes /
+    # avoid a full-table scan" reasons) and separated with a dash so the
+    # institute_id and the sequence number can never be confused when read
+    # back via SUBSTR — the same bug class the student-ID scheme had to avoid.
     prefix = f"TXN{institute_id}-"
     row = conn.execute(
         "SELECT MAX(CAST(SUBSTR(tx_id, ?) AS INTEGER)) FROM financial_records WHERE tx_id LIKE ? AND institute_id=?",
@@ -958,63 +1038,62 @@ def _next_tx_id(conn, institute_id: int) -> str:
     highest = row[0] if row and row[0] is not None else 900
     return f"{prefix}{highest + 1}"
 
-def set_payment_status(conn, institute_id: int, student_id: str, status: str, billing_month: str | None = None, method: str = "Marked Paid (Fee Desk)", reference: str = "", actor_email: str = ""):
-    if status not in {"Paid", "Unpaid"}:
-        raise ValueError("Invalid payment status")
-    month = billing_month or current_billing_month()
-    student = get_student(conn, institute_id, student_id)
-    if not student:
-        raise ValueError("Student not found")
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    previous = get_payment_status(conn, institute_id, student_id, month)
-    conn.execute(
-        """INSERT INTO fee_payments(institute_id, student_id, billing_month, amount, status, paid_date, method, reference, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(institute_id, student_id, billing_month) DO UPDATE SET
-             amount=excluded.amount, status=excluded.status, paid_date=excluded.paid_date,
-             method=excluded.method, reference=excluded.reference, updated_at=excluded.updated_at""",
-        (institute_id, student_id, month, int(student.get("fee") or 0), status, datetime.date.today().strftime("%Y-%m-%d") if status == "Paid" else None, method if status == "Paid" else None, reference or None, now, now),
-    )
+def set_payment_status(conn, institute_id: int, student_id: str, status: str):
+    previous_status = get_payment_status(conn, institute_id, student_id)
+
     conn.execute(
         """INSERT INTO payment_status(student_id, status, institute_id) VALUES (?,?,?)
            ON CONFLICT(student_id) DO UPDATE SET status=excluded.status""",
         (student_id, status, institute_id),
     )
-    if status == "Paid" and previous != "Paid":
-        existing = conn.execute(
-            "SELECT tx_id FROM financial_records WHERE institute_id=? AND student_id=? AND billing_month=? AND type='Tuition Fee'",
-            (institute_id, student_id, month),
-        ).fetchone()
-        if not existing:
+
+    # Auto-log a transaction the moment a student flips Unpaid -> Paid, so the
+    # ledger and "Fee Status: Paid" never disagree. Re-saving an already-Paid
+    # status (no change) does NOT create a duplicate entry.
+    if status == "Paid" and previous_status != "Paid":
+        student = get_student(conn, institute_id, student_id)
+        if student:
             conn.execute(
-                """INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method, institute_id, billing_month, reference, actor_email)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (_next_tx_id(conn, institute_id), student["name"], student_id, datetime.date.today().strftime("%Y-%m-%d"), int(student.get("fee") or 0), "Tuition Fee", method, institute_id, month, reference or None, actor_email or None),
+                "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method, institute_id) VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    _next_tx_id(conn, institute_id),
+                    student["name"],
+                    student_id,
+                    datetime.date.today().strftime("%Y-%m-%d"),
+                    student.get("fee", 0),
+                    "Tuition Fee",
+                    "Marked Paid (Fee Desk)",
+                    institute_id,
+                ),
             )
+
     conn.commit()
 
 def list_financial_records(conn, institute_id: int, student_id: str | None = None, student_name: str | None = None):
     if student_id or student_name:
+        # Match by student_id when present (new records); fall back to matching
+        # by name for older rows recorded before student_id was tracked.
         rows = conn.execute(
-            """SELECT * FROM financial_records WHERE institute_id=? AND ((student_id IS NOT NULL AND student_id=?) OR (student_id IS NULL AND student=?)) ORDER BY date DESC""",
+            """SELECT * FROM financial_records
+               WHERE institute_id=? AND (
+                     (student_id IS NOT NULL AND student_id=?)
+                  OR (student_id IS NULL AND student=?)
+               )
+               ORDER BY date DESC""",
             (institute_id, student_id, student_name),
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM financial_records WHERE institute_id=? ORDER BY date DESC", (institute_id,)).fetchall()
-    return [dict(r) for r in rows]
-
-def list_fee_payments(conn, institute_id: int, billing_month: str | None = None):
-    month = billing_month or current_billing_month()
-    rows = conn.execute(
-        """SELECT fp.*, s.name, s.grade, s.fee FROM fee_payments fp
-           JOIN students s ON s.id=fp.student_id AND s.institute_id=fp.institute_id
-           WHERE fp.institute_id=? AND fp.billing_month=? ORDER BY s.name""",
-        (institute_id, month),
-    ).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM financial_records WHERE institute_id=? ORDER BY date DESC", (institute_id,)
+        ).fetchall()
     return [dict(r) for r in rows]
 
 # ---- Notices ----
+
 def list_notices(conn, institute_id: int, grade: str | None = None):
+    """If grade is given, returns notices aimed at that grade PLUS any
+    'All Classes' notices (target_grade IS NULL/empty). If grade is None,
+    returns everything (used on the Teacher's own Notice Board view)."""
     if grade:
         rows = conn.execute(
             """SELECT * FROM notices
@@ -1038,7 +1117,7 @@ def add_notice(conn, institute_id: int, title, body, priority, date_str, target_
 conn = get_connection()
 
 # ----------------------------------------------------
-# 4. SESSION STATE
+# 4. SESSION STATE (login/navigation only — everything durable lives in SQLite now)
 # ----------------------------------------------------
 for key, default in {
     "logged_in": False,
@@ -1055,7 +1134,7 @@ for key, default in {
         st.session_state[key] = default
 
 # ----------------------------------------------------
-# 5. STATIC ASSETS
+# 5. STATIC ASSETS (LOGO RESOLUTION)
 # ----------------------------------------------------
 if os.path.exists("logo.jpg"):
     with open("logo.jpg", "rb") as img_file:
@@ -1071,6 +1150,9 @@ def logo_img_tag(size=48):
     )
 
 def filter_students(students: list[dict], query: str) -> list[dict]:
+    """Case-insensitive substring match across name, ID, grade, subject, and
+    parent email — good enough for finding one kid in a roster of hundreds
+    without needing a real search index."""
     q = (query or "").strip().lower()
     if not q:
         return students
@@ -1084,6 +1166,9 @@ def filter_students(students: list[dict], query: str) -> list[dict]:
     ]
 
 def rows_to_csv_bytes(rows: list[dict]) -> bytes:
+    """Turns a list of dicts (as returned by list_students / list_financial_records)
+    into CSV bytes for st.download_button. Uses the stdlib csv module rather
+    than pandas so it doesn't add a dependency just for this."""
     if not rows:
         return b""
     buf = io.StringIO()
@@ -1093,6 +1178,12 @@ def rows_to_csv_bytes(rows: list[dict]) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 def esc(value) -> str:
+    """Escapes a value for safe interpolation into an unsafe_allow_html
+    string. Everything that ultimately comes from user input (student names,
+    notice titles/bodies, institute names, emails, grades, subjects, etc.)
+    must be passed through this before being dropped into an HTML template —
+    otherwise a value like '<img src=x onerror=alert(1)>' typed as a student
+    name or notice body would execute for whoever views that card."""
     if value is None:
         return ""
     return html.escape(str(value), quote=True)
@@ -1281,6 +1372,10 @@ st.markdown(f"""
     div[data-testid="stToolbar"] {{ display: none !important; }}
     footer {{ display: none !important; }}
     div[class*="viewerBadge"] {{ display: none !important; }}
+    /* Keep the built-in "running" indicator visible and easy to notice —
+       without this, hiding the toolbar above can make it feel like nothing
+       happened when you tap a button, especially with Turso adding network
+       latency to every action. */
     div[data-testid="stStatusWidget"] {{
         display: flex !important;
         visibility: visible !important;
@@ -1296,6 +1391,10 @@ st.markdown(f"""
     div[data-testid="stStatusWidget"] * {{
         color: #ffffff !important;
     }}
+    /* Toast notifications (st.toast) need their own explicit background AND
+       text color set together — the global "p, span, label" rule above only
+       forces light text, and without a matching dark background here that
+       text can end up light-on-light and effectively invisible. */
     div[data-testid="stToast"] {{
         background-color: #1e293b !important;
         border: 1.5px solid #38bdf8 !important;
@@ -1305,6 +1404,9 @@ st.markdown(f"""
         color: #ffffff !important;
         opacity: 1 !important;
     }}
+    /* Password fields and native date pickers are OS/browser widgets on
+       mobile and don't reliably inherit the input[type="text"] styling
+       above — force them to match the dark theme explicitly. */
     input[type="password"],
     input[type="date"] {{
         background-color: #0f172a !important;
@@ -1314,29 +1416,21 @@ st.markdown(f"""
         font-weight: 600 !important;
         color-scheme: dark;
     }}
+    /* The little calendar icon inside a date input defaults to a dark icon
+       on a dark background (invisible) unless explicitly recolored. */
     input[type="date"]::-webkit-calendar-picker-indicator {{
         filter: invert(1);
         opacity: 0.8;
     }}
+    /* Instant visual feedback the moment a button is tapped, before the
+       network round-trip to the database even starts — otherwise a tap can
+       feel like it did nothing until the (Turso-backed, over-the-network)
+       rerun finishes and the page visibly changes. */
     .stButton button:active,
     div[data-testid="stFormSubmitButton"] button:active {{
         transform: scale(0.97) !important;
         opacity: 0.85 !important;
         transition: transform 0.05s ease, opacity 0.05s ease !important;
-    }}
-    /* Login-page role guidance boxes — colored border per role so the two
-       paths (existing login vs new academy signup) are visually distinct
-       at a glance, not just via tab labels. */
-    .login-guide-box {{
-        background: rgba(56, 189, 248, 0.08);
-        border: 1.5px solid #38bdf8;
-        border-radius: 12px;
-        padding: 14px 18px;
-        margin-bottom: 16px;
-    }}
-    .login-guide-box.signup {{
-        background: rgba(74, 222, 128, 0.08);
-        border-color: #4ade80;
     }}
     .block-container {{
         padding-top: 2rem !important;
@@ -1350,6 +1444,7 @@ st.markdown(f"""
 # ----------------------------------------------------
 # 7. SHARED HELPERS
 # ----------------------------------------------------
+
 def go_to(view: str):
     st.session_state.active_view = view
 
@@ -1390,6 +1485,7 @@ def logout_button(key: str):
         st.rerun()
 
 def render_plan_banner(institute_id: int):
+    """Shows Free-plan usage + manual-upgrade instructions on the Admin console."""
     plan = st.session_state.get("institute_plan", "Free")
     if plan == "Premium":
         return
@@ -1404,6 +1500,11 @@ def render_plan_banner(institute_id: int):
     """, unsafe_allow_html=True)
 
 def render_premium_upgrade_widget(institute_id: int, institute_name: str, admin_email: str):
+    """Self-serve Premium upgrade via a real Razorpay payment link — shown
+    only for Free-plan institutes, and only when Razorpay keys are actually
+    configured. If they aren't, this renders nothing and the manual banner
+    above (pay the owner directly) remains the only upgrade path, exactly as
+    before this feature existed."""
     plan = st.session_state.get("institute_plan", "Free")
     if plan == "Premium" or not razorpay_configured():
         return
@@ -1452,6 +1553,9 @@ def render_premium_upgrade_widget(institute_id: int, institute_name: str, admin_
     st.write("---")
 
 def refresh_institute_session(institute_id: int):
+    """Re-reads plan/limit from the DB into session_state on every dashboard
+    load, so a Super Admin flipping someone to Premium takes effect on their
+    very next click instead of requiring them to log out and back in."""
     if not institute_id:
         return
     inst = get_institute(conn, institute_id)
@@ -1461,6 +1565,11 @@ def refresh_institute_session(institute_id: int):
         st.session_state.student_limit = inst["student_limit"]
 
 def render_csv_import_widget(institute_id: int, key_prefix: str):
+    """Shared bulk-import widget used from both the Teacher Desk and Admin
+    Console. Expects a CSV with a 'name' column (required) and optional
+    'grade', 'subject', 'fee', 'parent_email' columns — same fields as the
+    single-student form, just many rows at once. Shows a preview and the
+    Free-plan capacity check before anything is actually inserted."""
     st.caption("CSV columns: **name** (required), grade, subject, fee, parent_email (all optional).")
     uploaded = st.file_uploader("Choose a CSV file", type=["csv"], key=f"{key_prefix}_csv_uploader")
     if not uploaded:
@@ -1469,6 +1578,8 @@ def render_csv_import_widget(institute_id: int, key_prefix: str):
     try:
         text = uploaded.getvalue().decode("utf-8-sig")
         reader = csv.DictReader(io.StringIO(text))
+        # Normalize header names (case/whitespace-insensitive) so "Name" or
+        # " Fee " in someone's spreadsheet export still matches.
         parsed_rows = []
         for raw_row in reader:
             norm_row = {(k or "").strip().lower(): v for k, v in raw_row.items()}
@@ -1510,15 +1621,8 @@ def render_csv_import_widget(institute_id: int, key_prefix: str):
         st.rerun()
 
 # ----------------------------------------------------
-# 8. VIEW: LOGIN / SIGNUP  (rewritten for clarity — see change note below)
+# 8. VIEW: LOGIN / SIGNUP
 # ----------------------------------------------------
-# CHANGE: the two tabs were not obviously distinct enough — real users
-# (institute Admins, Teachers, Parents) weren't sure which tab was for them.
-# Fixed by: (1) a clear "Which one am I?" box right above the tabs that
-# names all three roles explicitly, (2) more explicit tab labels, (3) a
-# matching colored guidance box repeated INSIDE each tab, so whichever one
-# someone lands on, they immediately see confirmation they're in the right
-# place or a pointer to switch.
 
 def show_login():
     st.markdown(f"""
@@ -1531,29 +1635,10 @@ def show_login():
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div class="login-guide-box">
-        <strong style="color: #38bdf8;">👋 Which one am I?</strong>
-        <p style="color: #e2e8f0; margin: 8px 0 0 0; font-size: 14px; line-height: 1.6;">
-            🧑‍🏫 <strong>Teacher</strong> or 👨‍👩‍👧 <strong>Parent</strong> — your academy's Admin already created your login.
-            Use the email &amp; password they gave you in the <strong>"🔑 I Already Have a Login"</strong> tab below.<br>
-            🏫 <strong>Starting a brand-new tuition academy?</strong> — you don't have a login yet.
-            Use the <strong>"🆕 New Academy? Start Free"</strong> tab to create one — you'll become its Admin.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab_login, tab_signup = st.tabs(["🔑 I Already Have a Login", "🆕 New Academy? Start Free"])
+    tab_login, tab_signup = st.tabs(["🔐 Log In", "🏫 Create Institute Account"])
 
     with tab_login:
-        st.markdown("""
-        <div class="login-guide-box">
-            <span style="color: #e2e8f0; font-size: 14px;">
-                ✅ Use this tab if you're an <strong>Admin, Teacher, or Parent</strong> who already has an email &amp; password
-                for this platform.
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("Welcome! Please log in to securely access your portal.")
 
         with st.form("login_form"):
             email_input = st.text_input("Registered Email Address", placeholder="name@academy.com")
@@ -1586,18 +1671,13 @@ def show_login():
                                 st.session_state.student_limit = inst["student_limit"]
 
                         st.session_state.active_view = "SuperAdmin" if result["is_super_admin"] else result["role"]
-                        must_change = bool(result.get("must_change_password"))
-                        st.session_state.must_change_password = must_change
                         st.rerun()
                     else:
                         record_failed_login(conn, clean_email)
-                        st.error(
-                            "Invalid email or password. If you're a Teacher or Parent, double-check with your "
-                            "academy Admin — they're the ones who created your account."
-                        )
+                        st.error("Invalid email or password. Please verify credentials.")
 
         if SHOW_DEMO_CREDENTIALS:
-            with st.expander("Demo credentials (for testing only)", expanded=False):
+            with st.expander("Demo credentials", expanded=False):
                 st.caption(
                     "Admin: admin@academy.com / admin123  \n"
                     "Teacher: teacher@academy.com / teacher123  \n"
@@ -1606,18 +1686,13 @@ def show_login():
                 )
 
     with tab_signup:
-        st.markdown("""
-        <div class="login-guide-box signup">
-            <span style="color: #e2e8f0; font-size: 14px;">
-                🏫 Use this tab ONLY if you're starting a <strong>brand-new tuition academy</strong> on this platform.
-                You'll become that academy's <strong>Admin</strong> and can then create Teacher and Parent logins
-                for your staff and students' families from your Admin Console.
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### Start your own tuition academy on this platform")
+        st.caption(f"Free plan includes up to {FREE_STUDENT_LIMIT} students, no credit card needed. Upgrade any time by contacting the platform owner.")
 
-        st.caption(f"Free plan includes up to {FREE_STUDENT_LIMIT} students, no credit card needed. Upgrade any time.")
-
+        # A fresh math challenge is generated once per "session" of attempts
+        # and only regenerated after a submit (success or failure) — not on
+        # every rerun — so the numbers don't change while someone is still
+        # mid-way through filling the form.
         if "signup_captcha_a" not in st.session_state:
             st.session_state.signup_captcha_a = secrets.randbelow(9) + 1
             st.session_state.signup_captcha_b = secrets.randbelow(9) + 1
@@ -1625,7 +1700,10 @@ def show_login():
         with st.form("signup_form", clear_on_submit=True):
             s_institute = st.text_input("Institute / Academy Name", placeholder="e.g., Bright Minds Tuition")
             s_email = st.text_input("Your Email (this becomes your Admin login)", placeholder="owner@myacademy.com")
-            s_pass = st.text_input("Create Password", type="password", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
+            s_pass = st.text_input("Create Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
+            # Honeypot: a field real people have no reason to fill in. Basic
+            # signup bots that blindly fill every input on a page trip this;
+            # a genuine person filling out the form above never touches it.
             s_honeypot = st.text_input(
                 "Leave this field empty",
                 key="signup_honeypot",
@@ -1641,6 +1719,8 @@ def show_login():
                 correct_answer = st.session_state.signup_captcha_a + st.session_state.signup_captcha_b
 
                 if s_honeypot.strip():
+                    # Don't reveal that a honeypot exists — a generic error
+                    # keeps a bot from learning what tripped it.
                     st.error("Something went wrong. Please try again.")
                 elif captcha_answer != correct_answer:
                     st.warning("That answer isn't quite right — please try the math check again.")
@@ -1650,7 +1730,7 @@ def show_login():
                     if not is_valid_email(clean_s_email):
                         st.warning("Please enter a valid email address.")
                     elif not is_password_strong_enough(s_pass):
-                        st.warning(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
+                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         allowed, rate_msg = check_signup_rate_limit(conn)
                         if not allowed:
@@ -1663,8 +1743,7 @@ def show_login():
                                     record_signup_attempt(conn)
                                 st.success(
                                     f"Account created! '{s_institute.strip()}' is live on the Free plan "
-                                    f"(up to {FREE_STUDENT_LIMIT} students). Switch to the "
-                                    f"'🔑 I Already Have a Login' tab above to log in."
+                                    f"(up to {FREE_STUDENT_LIMIT} students). Please log in above."
                                 )
                                 st.session_state.signup_captcha_a = secrets.randbelow(9) + 1
                                 st.session_state.signup_captcha_b = secrets.randbelow(9) + 1
@@ -1676,6 +1755,7 @@ def show_login():
 # ----------------------------------------------------
 # 9. VIEW: TEACHER DASHBOARD
 # ----------------------------------------------------
+
 def show_teacher_dashboard():
     institute_id = st.session_state.get("institute_id")
     refresh_institute_session(institute_id)
@@ -1736,8 +1816,14 @@ def show_teacher_dashboard():
         "📢 Notice Board"
     ])
 
+    # Fetched ONCE here and reused across all four tabs below — Streamlit
+    # renders every tab's code on every single rerun (not just the visible
+    # one), so calling list_students() separately per tab meant every click
+    # anywhere on this page triggered 4 separate Turso round-trips for the
+    # same roster before your click was even acknowledged.
     all_students = list_students(conn, institute_id)
 
+    # ---------------- TAB 1: STUDENT MANAGEMENT ----------------
     with tab_students:
         st.subheader("Academy Student Roster")
 
@@ -1835,6 +1921,7 @@ def show_teacher_dashboard():
             else:
                 st.write("No students available to remove.")
 
+    # ---------------- TAB 2: ATTENDANCE DESK ----------------
     with tab_attendance:
         st.subheader("Daily Attendance Register")
         selected_date = st.date_input(
@@ -1868,31 +1955,29 @@ def show_teacher_dashboard():
             if st.button("✅ Mark All Present", use_container_width=True, key="mark_all_btn"):
                 st.toast("Marking everyone present…", icon="✅")
                 st.session_state.att_mark_default = True
-                st.session_state.att_bulk_override = {s["id"]: True for s in active_roster}
                 st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
         with col_b:
             if st.button("⭕ Clear All", use_container_width=True, key="clear_all_btn"):
                 st.toast("Clearing all…", icon="⭕")
                 st.session_state.att_mark_default = False
-                st.session_state.att_bulk_override = {s["id"]: False for s in active_roster}
                 st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
 
         if "att_mark_default" not in st.session_state:
             st.session_state.att_mark_default = True
-        if "att_bulk_override" not in st.session_state:
-            st.session_state.att_bulk_override = {}
         batch_stamp = st.session_state.get("att_batch_stamp", 0)
 
         attendance_status = {}
         st.write("---")
         for s in active_roster:
             s_id = s["id"]
-            if s_id in st.session_state.att_bulk_override:
-                default_checked = bool(st.session_state.att_bulk_override[s_id])
-            elif s_id in existing_for_date:
-                default_checked = existing_for_date[s_id] == "Present"
-            else:
-                default_checked = st.session_state.att_mark_default
+            # Prefill from whatever's already saved for this date; fall back
+            # to the Mark All/Clear All default for students with no record
+            # yet on this date. Including batch_stamp and the date in the key
+            # forces a brand-new checkbox widget whenever the date changes or
+            # Mark All/Clear All is clicked — otherwise Streamlit remembers
+            # the checkbox's own prior state and ignores the value= we pass in.
+            default_checked = existing_for_date.get(s_id, None)
+            default_checked = (default_checked == "Present") if default_checked is not None else st.session_state.att_mark_default
             attendance_status[s_id] = st.checkbox(
                 f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
                 value=default_checked,
@@ -1914,10 +1999,87 @@ def show_teacher_dashboard():
             present_count = sum(1 for e in entries if e["status"] == "Present")
             st.success(f"Attendance recorded for {today_str}! Present: {present_count} | Absent: {len(entries) - present_count}")
 
+    # ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
-        st.subheader("🔒 Financial Desk — Admin Only")
-        st.info("Teachers can manage students, attendance and notices. Fee records and financial ledgers are restricted to Academy Admins.")
+        st.subheader("Tuition Fee Management")
 
+        if all_students:
+            payment_statuses = get_payment_statuses_bulk(conn, institute_id)
+            total_expected = sum(s.get("fee", 0) for s in all_students)
+            total_collected = sum(
+                s.get("fee", 0) for s in all_students if payment_statuses.get(s["id"], "Unpaid") == "Paid"
+            )
+            total_due = total_expected - total_collected
+
+            col_rev1, col_rev2 = st.columns(2)
+            with col_rev1:
+                st.metric("Total Collected", f"₹{total_collected:,}")
+            with col_rev2:
+                st.metric("Pending / Due", f"₹{total_due:,}")
+
+            st.write("---")
+            st.markdown("### Update Student Payment Status")
+
+            with st.form("fee_status_form"):
+                new_statuses = {}
+                for student in all_students:
+                    s_id = student["id"]
+                    current_val = payment_statuses.get(s_id, "Unpaid")
+
+                    f_col1, f_col2 = st.columns([3, 2])
+                    with f_col1:
+                        badge = "🟢 Paid" if current_val == "Paid" else "🔴 Unpaid"
+                        st.markdown(
+                            f"**{esc(student['name'])}** ({esc(student['grade'])})<br>"
+                            f"<span style='color:#94a3b8;'>Fee: ₹{student['fee']:,} • Status: {badge}</span>",
+                            unsafe_allow_html=True
+                        )
+                    with f_col2:
+                        new_statuses[s_id] = st.selectbox(
+                            "Status",
+                            options=["Unpaid", "Paid"],
+                            index=1 if current_val == "Paid" else 0,
+                            key=f"select_fee_{s_id}",
+                            label_visibility="collapsed"
+                        )
+
+                st.write("")
+                submit_fee_update = st.form_submit_button("💾 Save Payment Statuses", use_container_width=True, type="primary")
+
+                if submit_fee_update:
+                    st.toast("Saving payment statuses…", icon="⏳")
+                    with st.spinner("Saving payment statuses…"):
+                        for sid, stat in new_statuses.items():
+                            set_payment_status(conn, institute_id, sid, stat)
+                    st.success("Payment records updated!")
+                    st.rerun()
+
+            st.write("---")
+
+            unpaid_students = [s for s in all_students if payment_statuses.get(s["id"], "Unpaid") == "Unpaid"]
+            if unpaid_students:
+                st.markdown(f"""
+                <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 10px; padding: 12px 16px;">
+                    <strong style="color: #ef4444; font-size: 15px;">⚠️ Pending Fee Reminders:</strong>
+                    <p style="color: #fecaca; font-size: 13px; margin: 4px 0 0 0;">
+                        {len(unpaid_students)} student(s) have unpaid balances totaling <strong>₹{total_due:,}</strong>.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.success("🎉 All students have paid their dues for this cycle!")
+        else:
+            st.info("No students enrolled yet to track fees.")
+
+        st.write("---")
+        st.markdown("### Raw Transaction Ledger")
+        records = list_financial_records(conn, institute_id)
+        if records:
+            st.dataframe(records, use_container_width=True, hide_index=True)
+        else:
+            st.info("No transactions recorded yet.")
+
+    # ---------------- TAB 4: NOTICE BOARD ----------------
     with tab_notices:
         st.subheader("📢 Academy Notice Board")
 
@@ -1971,6 +2133,7 @@ def show_teacher_dashboard():
 # ----------------------------------------------------
 # 10. VIEW: PARENT DASHBOARD
 # ----------------------------------------------------
+
 def render_child_card(child: dict, institute_id: int):
     child_id = child.get("id", "")
     child_name = child.get("name", "")
@@ -2092,6 +2255,7 @@ def show_parent_dashboard():
 # ----------------------------------------------------
 # 11. VIEW: ADMIN DASHBOARD
 # ----------------------------------------------------
+
 def show_admin_dashboard():
     institute_id = st.session_state.get("institute_id")
     refresh_institute_session(institute_id)
@@ -2115,6 +2279,10 @@ def show_admin_dashboard():
 
     st.write("---")
 
+    # Fetched once and reused below for both the summary metrics and the
+    # roster table/search — plus one bulk payment-status query instead of
+    # calling get_payment_status() once per student (the same N+1 pattern
+    # fixed on the Teacher Desk's Financial tab).
     all_students = list_students(conn, institute_id)
     enrolled_count = len(all_students)
     total_rev = sum(s.get("fee", 0) for s in all_students)
@@ -2225,19 +2393,6 @@ def show_admin_dashboard():
         else:
             st.write("No students available to remove.")
 
-    with st.expander("♻️ Archived Students / Restore", expanded=False):
-        archived = list_archived_students(conn, institute_id)
-        if archived:
-            restore_options = [f"{s['name']} ({s['id']})" for s in archived]
-            restore_choice = st.selectbox("Select Student to Restore", restore_options, key="admin_restore_stu_select")
-            if st.button("♻️ Restore Student", use_container_width=True, key="admin_restore_stu_btn"):
-                chosen_id = restore_choice.split("(")[-1].replace(")", "").strip()
-                restore_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
-                st.success("Student restored successfully.")
-                st.rerun()
-        else:
-            st.info("No archived students.")
-
     st.write("---")
     st.subheader("Master Financial Ledger")
     records = list_financial_records(conn, institute_id)
@@ -2257,11 +2412,11 @@ def show_admin_dashboard():
     with st.expander("➕ Create Parent Account", expanded=False):
         with st.form("create_parent_form", clear_on_submit=True):
             p_email = st.text_input("Parent Email", placeholder="parent@example.com")
-            p_pass = st.text_input("Temporary Password", type="password", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
+            p_pass = st.text_input("Temporary Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
             p_children = st.multiselect(
                 "Link to Student(s)",
-                options=[f"{s['name']} ({s['id']})" for s in all_students],
-                help="Students are selected by unique student ID so duplicate names cannot be linked accidentally."
+                options=[s["name"] for s in all_students],
+                help="You can also link/relink students later from the Teacher Desk."
             )
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_email = p_email.strip().lower()
@@ -2269,17 +2424,17 @@ def show_admin_dashboard():
                     if not is_valid_email(clean_email):
                         st.warning("Please enter a valid email address.")
                     elif not is_password_strong_enough(p_pass):
-                        st.warning(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
+                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
                             st.toast("Creating parent account…", icon="⏳")
                             with st.spinner("Creating parent account…"):
                                 create_parent_account(conn, institute_id, clean_email, p_pass)
-                                for selected in p_children:
-                                    match = next((s for s in all_students if selected.endswith(f"({s['id']})")), None)
+                                for name in p_children:
+                                    match = next((s for s in all_students if s["name"] == name), None)
                                     if match:
                                         update_student_parent_email(conn, institute_id, match["id"], clean_email)
-                            st.success(f"Parent account created for {clean_email}. Give them this email + the password you set, and tell them to use the 'I Already Have a Login' tab.")
+                            st.success(f"Parent account created for {clean_email}.")
                             st.rerun()
                         except Exception:
                             st.error("An account with that email already exists.")
@@ -2310,20 +2465,20 @@ def show_admin_dashboard():
     with st.expander("➕ Create Teacher Account", expanded=False):
         with st.form("create_teacher_form", clear_on_submit=True):
             t_email = st.text_input("Teacher Email", placeholder="teacher.name@academy.com")
-            t_pass = st.text_input("Temporary Password", type="password", key="new_teacher_pass", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
+            t_pass = st.text_input("Temporary Password", type="password", key="new_teacher_pass", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_t_email = t_email.strip().lower()
                 if clean_t_email and t_pass.strip():
                     if not is_valid_email(clean_t_email):
                         st.warning("Please enter a valid email address.")
                     elif not is_password_strong_enough(t_pass):
-                        st.warning(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
+                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
                     else:
                         try:
                             st.toast("Creating teacher account…", icon="⏳")
                             with st.spinner("Creating teacher account…"):
                                 create_teacher_account(conn, institute_id, clean_t_email, t_pass)
-                            st.success(f"Teacher account created for {clean_t_email}. Give them this email + the password you set, and tell them to use the 'I Already Have a Login' tab.")
+                            st.success(f"Teacher account created for {clean_t_email}.")
                             st.rerun()
                         except Exception:
                             st.error("An account with that email already exists.")
@@ -2348,8 +2503,9 @@ def show_admin_dashboard():
     logout_button("admin_logout_btn")
 
 # ----------------------------------------------------
-# 12. VIEW: SUPER ADMIN DASHBOARD
+# 12. VIEW: SUPER ADMIN DASHBOARD (platform owner — you)
 # ----------------------------------------------------
+
 def show_super_admin_dashboard():
     render_header("Super Admin Console", "Platform Owner • Manage every institute")
 
@@ -2417,11 +2573,11 @@ def show_super_admin_dashboard():
             elif not user_row:
                 st.error("No account found with that email.")
             elif not is_password_strong_enough(target_new_pw):
-                st.warning(f"New password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
+                st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
             else:
                 st.toast("Resetting password…", icon="⏳")
                 with st.spinner("Resetting password…"):
-                    update_password(conn, clean_target, target_new_pw, force_change=True)
+                    update_password(conn, clean_target, target_new_pw)
                     log_audit_event(
                         conn, st.session_state.get("user_email", ""), "password_reset",
                         f"Reset password for {clean_target}", user_row["institute_id"],
@@ -2445,7 +2601,7 @@ def show_super_admin_dashboard():
             ).fetchone()["password_hash"]):
                 st.error("Current password is incorrect.")
             elif not is_password_strong_enough(new_pw):
-                st.warning(f"New password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
+                st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
             elif new_pw != confirm_pw:
                 st.warning("New password and confirmation don't match.")
             else:
@@ -2474,25 +2630,6 @@ def show_super_admin_dashboard():
 if not st.session_state.get("logged_in", False):
     show_login()
 else:
-    if st.session_state.get("must_change_password"):
-        st.title("🔐 Password Change Required")
-        st.info("Your account was created or reset with a temporary password. Please choose a new password before continuing.")
-        with st.form("forced_password_change_form", clear_on_submit=True):
-            new_pw = st.text_input("New Password", type="password", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
-            confirm_pw = st.text_input("Confirm New Password", type="password")
-            if st.form_submit_button("Set New Password", use_container_width=True, type="primary"):
-                if not is_password_strong_enough(new_pw):
-                    st.error(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
-                elif new_pw != confirm_pw:
-                    st.error("Passwords do not match.")
-                else:
-                    update_password(conn, st.session_state.get("user_email", ""), new_pw, force_change=False)
-                    st.session_state.must_change_password = False
-                    log_audit_event(conn, st.session_state.get("user_email", ""), "password_changed_after_reset", "Temporary password replaced", st.session_state.get("institute_id"))
-                    st.success("Password updated successfully.")
-                    st.rerun()
-        st.stop()
-
     logged_role = st.session_state.get("logged_in_role", "Teacher")
     is_super = bool(st.session_state.get("is_super_admin"))
 
