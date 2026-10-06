@@ -594,29 +594,43 @@ def clear_failed_login(conn, email: str):
         pass
 
 def update_password(conn, email: str, new_password: str, force_change: bool = False):
-    conn.execute(
-        "UPDATE users SET password_hash=?, must_change_password=? WHERE email=?", (hash_password(new_password), 1 if force_change else 0, email)
-    )
+    conn.execute("UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_password), email))
+    try:
+        conn.execute(
+            "UPDATE users SET must_change_password=? WHERE email=?",
+            (1 if force_change else 0, email),
+        )
+    except Exception:
+        # Keep password changes working with older databases that lack the
+        # optional migration column.
+        pass
     conn.commit()
 
 def authenticate(conn, email: str, password: str):
+    # Backward-compatible login: older databases do not necessarily have
+    # the newer must_change_password column. Login must never depend on it.
     row = conn.execute(
-        "SELECT password_hash, role, institute_id, is_super_admin, must_change_password FROM users WHERE email=?", (email,)
+        "SELECT password_hash, role, institute_id, is_super_admin FROM users WHERE email=?",
+        (email,),
     ).fetchone()
     if row and verify_password(password, row["password_hash"]):
         return {
             "role": row["role"],
             "institute_id": row["institute_id"],
-            "is_super_admin": bool(row["is_super_admin"]),
-            "must_change_password": bool(row["must_change_password"]),
+            "is_super_admin": bool(row.get("is_super_admin", 0)),
+            "must_change_password": bool(row.get("must_change_password", 0)),
         }
     return None
 
 def create_user_account(conn, institute_id: int, email: str, password: str, role: str):
     conn.execute(
-        "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin, must_change_password) VALUES (?,?,?,?,0,1)",
+        "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
         (email, hash_password(password), role, institute_id),
     )
+    try:
+        conn.execute("UPDATE users SET must_change_password=1 WHERE email=?", (email,))
+    except Exception:
+        pass
     conn.commit()
 
 def list_accounts_by_role(conn, institute_id: int, role: str):
