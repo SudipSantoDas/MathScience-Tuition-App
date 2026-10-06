@@ -35,12 +35,13 @@ FREE_STUDENT_LIMIT = 15
 # deploy so the seeded account isn't the public default. After that first run,
 # use the in-app "Change Password" form in the Super Admin console instead —
 # these env vars won't touch an already-seeded account on later restarts.
-SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "owner@platform.com")
-SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "owner123")
+SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "").strip().lower()
+SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "")
 
 # Set SHOW_DEMO_CREDENTIALS=false in production deploys to hide the demo
 # login hints on the public login screen (they're handy for local dev only).
-SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "true").strip().lower() != "false"
+SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "false").strip().lower() == "true"
+DEMO_MODE = os.environ.get("DEMO_MODE", "false").strip().lower() == "true"
 
 # Minimum acceptable password length, enforced everywhere a password is set.
 MIN_PASSWORD_LENGTH = 8
@@ -171,7 +172,14 @@ def verify_password(password: str, stored: str) -> bool:
     return secrets.compare_digest(hash_password(password, salt_hex), stored)
 
 def is_password_strong_enough(password: str) -> bool:
-    return bool(password) and len(password) >= MIN_PASSWORD_LENGTH
+    if not password or len(password) < MIN_PASSWORD_LENGTH:
+        return False
+    return (
+        any(c.islower() for c in password)
+        and any(c.isupper() for c in password)
+        and any(c.isdigit() for c in password)
+        and any(not c.isalnum() for c in password)
+    )
 
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -288,6 +296,20 @@ def _create_schema(conn):
         status TEXT,
         created_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS fee_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        institute_id INTEGER NOT NULL,
+        student_id TEXT NOT NULL,
+        billing_month TEXT NOT NULL,
+        amount INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'Unpaid',
+        paid_date TEXT,
+        method TEXT,
+        reference TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(institute_id, student_id, billing_month)
+    );
     """)
     conn.commit()
 
@@ -303,6 +325,10 @@ def _ensure_multitenancy_columns(conn):
     _ensure_column(conn, "notices", "institute_id", "INTEGER")
     _ensure_column(conn, "notices", "target_grade", "TEXT")
     _ensure_column(conn, "students", "is_deleted", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "financial_records", "billing_month", "TEXT")
+    _ensure_column(conn, "financial_records", "reference", "TEXT")
+    _ensure_column(conn, "financial_records", "actor_email", "TEXT")
+    _ensure_column(conn, "users", "must_change_password", "INTEGER DEFAULT 0")
 
 def _migrate_local_file_into_turso_if_needed(turso_conn):
     if not os.path.exists(DB_PATH):
@@ -406,7 +432,7 @@ def init_db(conn):
             conn.execute(f"UPDATE {table} SET institute_id=? WHERE institute_id IS NULL", (legacy_institute_id,))
         conn.commit()
 
-    if conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
+    if DEMO_MODE and conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
         cur = conn.execute(
             "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
             ("Demo Academy", "admin@academy.com", "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
@@ -450,12 +476,35 @@ def init_db(conn):
         )
         conn.commit()
 
+    # One-time migration of legacy Paid/Unpaid flags into the current billing cycle.
+    for inst_row in conn.execute("SELECT id FROM institutes").fetchall():
+        inst_id = inst_row["id"]
+        legacy_rows = conn.execute("SELECT student_id, status FROM payment_status WHERE institute_id=?", (inst_id,)).fetchall()
+        for legacy in legacy_rows:
+            student = get_student(conn, inst_id, legacy["student_id"]) if "get_student" in globals() else None
+            if not student:
+                continue
+            exists = conn.execute("SELECT 1 FROM fee_payments WHERE institute_id=? AND student_id=? AND billing_month=?", (inst_id, legacy["student_id"], current_billing_month())).fetchone()
+            if not exists:
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                conn.execute("INSERT INTO fee_payments(institute_id, student_id, billing_month, amount, status, paid_date, method, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)", (inst_id, legacy["student_id"], current_billing_month(), int(student.get("fee") or 0), legacy["status"], datetime.date.today().strftime("%Y-%m-%d") if legacy["status"] == "Paid" else None, "Legacy Fee Status" if legacy["status"] == "Paid" else None, now, now))
+    conn.commit()
+
     if conn.execute("SELECT COUNT(*) FROM users WHERE is_super_admin=1").fetchone()[0] == 0:
-        conn.execute(
-            "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,1)",
-            (SUPER_ADMIN_EMAIL, hash_password(SUPER_ADMIN_PASSWORD), "Admin", None),
-        )
-        conn.commit()
+        if not SUPER_ADMIN_EMAIL or not SUPER_ADMIN_PASSWORD:
+            if conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
+                # A fresh production deployment can still start so the owner can configure secrets.
+                st.warning("SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD are not configured. Set them in Streamlit Secrets before creating the first platform-owner account.")
+            else:
+                st.warning("No Super Admin exists. Configure SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD, then restart the app.")
+        elif not is_valid_email(SUPER_ADMIN_EMAIL) or not is_password_strong_enough(SUPER_ADMIN_PASSWORD):
+            raise RuntimeError("SUPER_ADMIN_EMAIL must be valid and SUPER_ADMIN_PASSWORD must be 8+ chars with upper/lowercase, number and special character.")
+        else:
+            conn.execute(
+                "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,1)",
+                (SUPER_ADMIN_EMAIL, hash_password(SUPER_ADMIN_PASSWORD), "Admin", None),
+            )
+            conn.commit()
 
 # ---- Auth ----
 LOGIN_MAX_ATTEMPTS = 5
@@ -544,27 +593,28 @@ def clear_failed_login(conn, email: str):
     except Exception:
         pass
 
-def update_password(conn, email: str, new_password: str):
+def update_password(conn, email: str, new_password: str, force_change: bool = False):
     conn.execute(
-        "UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_password), email)
+        "UPDATE users SET password_hash=?, must_change_password=? WHERE email=?", (hash_password(new_password), 1 if force_change else 0, email)
     )
     conn.commit()
 
 def authenticate(conn, email: str, password: str):
     row = conn.execute(
-        "SELECT password_hash, role, institute_id, is_super_admin FROM users WHERE email=?", (email,)
+        "SELECT password_hash, role, institute_id, is_super_admin, must_change_password FROM users WHERE email=?", (email,)
     ).fetchone()
     if row and verify_password(password, row["password_hash"]):
         return {
             "role": row["role"],
             "institute_id": row["institute_id"],
             "is_super_admin": bool(row["is_super_admin"]),
+            "must_change_password": bool(row["must_change_password"]),
         }
     return None
 
 def create_user_account(conn, institute_id: int, email: str, password: str, role: str):
     conn.execute(
-        "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,0)",
+        "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin, must_change_password) VALUES (?,?,?,?,0,1)",
         (email, hash_password(password), role, institute_id),
     )
     conn.commit()
@@ -782,7 +832,17 @@ def delete_student(conn, institute_id: int, student_id: str, actor_email: str = 
     conn.execute("UPDATE students SET is_deleted=1 WHERE id=? AND institute_id=?", (student_id, institute_id))
     conn.commit()
     student_name = student["name"] if student else student_id
-    log_audit_event(conn, actor_email, "student_deleted", f"Removed {student_name} ({student_id})", institute_id)
+    log_audit_event(conn, actor_email, "student_deleted", f"Archived {student_name} ({student_id})", institute_id)
+
+def restore_student(conn, institute_id: int, student_id: str, actor_email: str = ""):
+    student = conn.execute("SELECT name FROM students WHERE id=? AND institute_id=?", (student_id, institute_id)).fetchone()
+    conn.execute("UPDATE students SET is_deleted=0 WHERE id=? AND institute_id=?", (student_id, institute_id))
+    conn.commit()
+    student_name = student["name"] if student else student_id
+    log_audit_event(conn, actor_email, "student_restored", f"Restored {student_name} ({student_id})", institute_id)
+
+def list_archived_students(conn, institute_id: int):
+    return [dict(r) for r in conn.execute("SELECT * FROM students WHERE institute_id=? AND is_deleted=1 ORDER BY name", (institute_id,)).fetchall()]
 
 def update_student_parent_email(conn, institute_id: int, student_id: str, parent_email: str | None):
     conn.execute(
@@ -842,17 +902,38 @@ def attendance_history(conn, institute_id: int, student_id: str):
     return [(r["date"], r["status"]) for r in rows]
 
 # ---- Fees ----
-def get_payment_status(conn, institute_id: int, student_id: str) -> str:
-    row = conn.execute(
-        "SELECT status FROM payment_status WHERE student_id=? AND institute_id=?", (student_id, institute_id)
-    ).fetchone()
-    return row["status"] if row else "Unpaid"
+def current_billing_month() -> str:
+    return datetime.date.today().strftime("%Y-%m")
 
-def get_payment_statuses_bulk(conn, institute_id: int) -> dict:
+def ensure_fee_payment(conn, institute_id: int, student: dict, billing_month: str | None = None):
+    month = billing_month or current_billing_month()
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """INSERT INTO fee_payments(institute_id, student_id, billing_month, amount, status, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(institute_id, student_id, billing_month) DO UPDATE SET amount=excluded.amount, updated_at=excluded.updated_at""",
+        (institute_id, student["id"], month, int(student.get("fee") or 0), "Unpaid", now, now),
+    )
+    conn.commit()
+
+def get_payment_status(conn, institute_id: int, student_id: str, billing_month: str | None = None) -> str:
+    month = billing_month or current_billing_month()
+    row = conn.execute(
+        "SELECT status FROM fee_payments WHERE student_id=? AND institute_id=? AND billing_month=?",
+        (student_id, institute_id, month),
+    ).fetchone()
+    if row:
+        return row["status"]
+    return "Unpaid"
+
+def get_payment_statuses_bulk(conn, institute_id: int, billing_month: str | None = None) -> dict:
+    month = billing_month or current_billing_month()
     rows = conn.execute(
-        "SELECT student_id, status FROM payment_status WHERE institute_id=?", (institute_id,)
+        "SELECT student_id, status FROM fee_payments WHERE institute_id=? AND billing_month=?",
+        (institute_id, month),
     ).fetchall()
-    return {r["student_id"]: r["status"] for r in rows}
+    result = {r["student_id"]: r["status"] for r in rows}
+    return result
 
 def _next_tx_id(conn, institute_id: int) -> str:
     prefix = f"TXN{institute_id}-"
@@ -863,49 +944,59 @@ def _next_tx_id(conn, institute_id: int) -> str:
     highest = row[0] if row and row[0] is not None else 900
     return f"{prefix}{highest + 1}"
 
-def set_payment_status(conn, institute_id: int, student_id: str, status: str):
-    previous_status = get_payment_status(conn, institute_id, student_id)
-
+def set_payment_status(conn, institute_id: int, student_id: str, status: str, billing_month: str | None = None, method: str = "Marked Paid (Fee Desk)", reference: str = "", actor_email: str = ""):
+    if status not in {"Paid", "Unpaid"}:
+        raise ValueError("Invalid payment status")
+    month = billing_month or current_billing_month()
+    student = get_student(conn, institute_id, student_id)
+    if not student:
+        raise ValueError("Student not found")
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    previous = get_payment_status(conn, institute_id, student_id, month)
+    conn.execute(
+        """INSERT INTO fee_payments(institute_id, student_id, billing_month, amount, status, paid_date, method, reference, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(institute_id, student_id, billing_month) DO UPDATE SET
+             amount=excluded.amount, status=excluded.status, paid_date=excluded.paid_date,
+             method=excluded.method, reference=excluded.reference, updated_at=excluded.updated_at""",
+        (institute_id, student_id, month, int(student.get("fee") or 0), status, datetime.date.today().strftime("%Y-%m-%d") if status == "Paid" else None, method if status == "Paid" else None, reference or None, now, now),
+    )
     conn.execute(
         """INSERT INTO payment_status(student_id, status, institute_id) VALUES (?,?,?)
            ON CONFLICT(student_id) DO UPDATE SET status=excluded.status""",
         (student_id, status, institute_id),
     )
-
-    if status == "Paid" and previous_status != "Paid":
-        student = get_student(conn, institute_id, student_id)
-        if student:
+    if status == "Paid" and previous != "Paid":
+        existing = conn.execute(
+            "SELECT tx_id FROM financial_records WHERE institute_id=? AND student_id=? AND billing_month=? AND type='Tuition Fee'",
+            (institute_id, student_id, month),
+        ).fetchone()
+        if not existing:
             conn.execute(
-                "INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method, institute_id) VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    _next_tx_id(conn, institute_id),
-                    student["name"],
-                    student_id,
-                    datetime.date.today().strftime("%Y-%m-%d"),
-                    student.get("fee", 0),
-                    "Tuition Fee",
-                    "Marked Paid (Fee Desk)",
-                    institute_id,
-                ),
+                """INSERT INTO financial_records(tx_id, student, student_id, date, amount, type, method, institute_id, billing_month, reference, actor_email)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (_next_tx_id(conn, institute_id), student["name"], student_id, datetime.date.today().strftime("%Y-%m-%d"), int(student.get("fee") or 0), "Tuition Fee", method, institute_id, month, reference or None, actor_email or None),
             )
-
     conn.commit()
 
 def list_financial_records(conn, institute_id: int, student_id: str | None = None, student_name: str | None = None):
     if student_id or student_name:
         rows = conn.execute(
-            """SELECT * FROM financial_records
-               WHERE institute_id=? AND (
-                     (student_id IS NOT NULL AND student_id=?)
-                  OR (student_id IS NULL AND student=?)
-               )
-               ORDER BY date DESC""",
+            """SELECT * FROM financial_records WHERE institute_id=? AND ((student_id IS NOT NULL AND student_id=?) OR (student_id IS NULL AND student=?)) ORDER BY date DESC""",
             (institute_id, student_id, student_name),
         ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM financial_records WHERE institute_id=? ORDER BY date DESC", (institute_id,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM financial_records WHERE institute_id=? ORDER BY date DESC", (institute_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+def list_fee_payments(conn, institute_id: int, billing_month: str | None = None):
+    month = billing_month or current_billing_month()
+    rows = conn.execute(
+        """SELECT fp.*, s.name, s.grade, s.fee FROM fee_payments fp
+           JOIN students s ON s.id=fp.student_id AND s.institute_id=fp.institute_id
+           WHERE fp.institute_id=? AND fp.billing_month=? ORDER BY s.name""",
+        (institute_id, month),
+    ).fetchall()
     return [dict(r) for r in rows]
 
 # ---- Notices ----
@@ -1481,6 +1572,8 @@ def show_login():
                                 st.session_state.student_limit = inst["student_limit"]
 
                         st.session_state.active_view = "SuperAdmin" if result["is_super_admin"] else result["role"]
+                        must_change = bool(result.get("must_change_password"))
+                        st.session_state.must_change_password = must_change
                         st.rerun()
                     else:
                         record_failed_login(conn, clean_email)
@@ -1518,7 +1611,7 @@ def show_login():
         with st.form("signup_form", clear_on_submit=True):
             s_institute = st.text_input("Institute / Academy Name", placeholder="e.g., Bright Minds Tuition")
             s_email = st.text_input("Your Email (this becomes your Admin login)", placeholder="owner@myacademy.com")
-            s_pass = st.text_input("Create Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
+            s_pass = st.text_input("Create Password", type="password", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
             s_honeypot = st.text_input(
                 "Leave this field empty",
                 key="signup_honeypot",
@@ -1543,7 +1636,7 @@ def show_login():
                     if not is_valid_email(clean_s_email):
                         st.warning("Please enter a valid email address.")
                     elif not is_password_strong_enough(s_pass):
-                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
+                        st.warning(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
                     else:
                         allowed, rate_msg = check_signup_rate_limit(conn)
                         if not allowed:
@@ -1761,23 +1854,31 @@ def show_teacher_dashboard():
             if st.button("✅ Mark All Present", use_container_width=True, key="mark_all_btn"):
                 st.toast("Marking everyone present…", icon="✅")
                 st.session_state.att_mark_default = True
+                st.session_state.att_bulk_override = {s["id"]: True for s in active_roster}
                 st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
         with col_b:
             if st.button("⭕ Clear All", use_container_width=True, key="clear_all_btn"):
                 st.toast("Clearing all…", icon="⭕")
                 st.session_state.att_mark_default = False
+                st.session_state.att_bulk_override = {s["id"]: False for s in active_roster}
                 st.session_state.att_batch_stamp = st.session_state.get("att_batch_stamp", 0) + 1
 
         if "att_mark_default" not in st.session_state:
             st.session_state.att_mark_default = True
+        if "att_bulk_override" not in st.session_state:
+            st.session_state.att_bulk_override = {}
         batch_stamp = st.session_state.get("att_batch_stamp", 0)
 
         attendance_status = {}
         st.write("---")
         for s in active_roster:
             s_id = s["id"]
-            default_checked = existing_for_date.get(s_id, None)
-            default_checked = (default_checked == "Present") if default_checked is not None else st.session_state.att_mark_default
+            if s_id in st.session_state.att_bulk_override:
+                default_checked = bool(st.session_state.att_bulk_override[s_id])
+            elif s_id in existing_for_date:
+                default_checked = existing_for_date[s_id] == "Present"
+            else:
+                default_checked = st.session_state.att_mark_default
             attendance_status[s_id] = st.checkbox(
                 f"{s['name']} — {s['grade']} ({s.get('subject', 'General')})",
                 value=default_checked,
@@ -1800,83 +1901,8 @@ def show_teacher_dashboard():
             st.success(f"Attendance recorded for {today_str}! Present: {present_count} | Absent: {len(entries) - present_count}")
 
     with tab_financial:
-        st.subheader("Tuition Fee Management")
-
-        if all_students:
-            payment_statuses = get_payment_statuses_bulk(conn, institute_id)
-            total_expected = sum(s.get("fee", 0) for s in all_students)
-            total_collected = sum(
-                s.get("fee", 0) for s in all_students if payment_statuses.get(s["id"], "Unpaid") == "Paid"
-            )
-            total_due = total_expected - total_collected
-
-            col_rev1, col_rev2 = st.columns(2)
-            with col_rev1:
-                st.metric("Total Collected", f"₹{total_collected:,}")
-            with col_rev2:
-                st.metric("Pending / Due", f"₹{total_due:,}")
-
-            st.write("---")
-            st.markdown("### Update Student Payment Status")
-
-            with st.form("fee_status_form"):
-                new_statuses = {}
-                for student in all_students:
-                    s_id = student["id"]
-                    current_val = payment_statuses.get(s_id, "Unpaid")
-
-                    f_col1, f_col2 = st.columns([3, 2])
-                    with f_col1:
-                        badge = "🟢 Paid" if current_val == "Paid" else "🔴 Unpaid"
-                        st.markdown(
-                            f"**{esc(student['name'])}** ({esc(student['grade'])})<br>"
-                            f"<span style='color:#94a3b8;'>Fee: ₹{student['fee']:,} • Status: {badge}</span>",
-                            unsafe_allow_html=True
-                        )
-                    with f_col2:
-                        new_statuses[s_id] = st.selectbox(
-                            "Status",
-                            options=["Unpaid", "Paid"],
-                            index=1 if current_val == "Paid" else 0,
-                            key=f"select_fee_{s_id}",
-                            label_visibility="collapsed"
-                        )
-
-                st.write("")
-                submit_fee_update = st.form_submit_button("💾 Save Payment Statuses", use_container_width=True, type="primary")
-
-                if submit_fee_update:
-                    st.toast("Saving payment statuses…", icon="⏳")
-                    with st.spinner("Saving payment statuses…"):
-                        for sid, stat in new_statuses.items():
-                            set_payment_status(conn, institute_id, sid, stat)
-                    st.success("Payment records updated!")
-                    st.rerun()
-
-            st.write("---")
-
-            unpaid_students = [s for s in all_students if payment_statuses.get(s["id"], "Unpaid") == "Unpaid"]
-            if unpaid_students:
-                st.markdown(f"""
-                <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 10px; padding: 12px 16px;">
-                    <strong style="color: #ef4444; font-size: 15px;">⚠️ Pending Fee Reminders:</strong>
-                    <p style="color: #fecaca; font-size: 13px; margin: 4px 0 0 0;">
-                        {len(unpaid_students)} student(s) have unpaid balances totaling <strong>₹{total_due:,}</strong>.
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.success("🎉 All students have paid their dues for this cycle!")
-        else:
-            st.info("No students enrolled yet to track fees.")
-
-        st.write("---")
-        st.markdown("### Raw Transaction Ledger")
-        records = list_financial_records(conn, institute_id)
-        if records:
-            st.dataframe(records, use_container_width=True, hide_index=True)
-        else:
-            st.info("No transactions recorded yet.")
+        st.subheader("🔒 Financial Desk — Admin Only")
+        st.info("Teachers can manage students, attendance and notices. Fee records and financial ledgers are restricted to Academy Admins.")
 
     with tab_notices:
         st.subheader("📢 Academy Notice Board")
@@ -2185,6 +2211,19 @@ def show_admin_dashboard():
         else:
             st.write("No students available to remove.")
 
+    with st.expander("♻️ Archived Students / Restore", expanded=False):
+        archived = list_archived_students(conn, institute_id)
+        if archived:
+            restore_options = [f"{s['name']} ({s['id']})" for s in archived]
+            restore_choice = st.selectbox("Select Student to Restore", restore_options, key="admin_restore_stu_select")
+            if st.button("♻️ Restore Student", use_container_width=True, key="admin_restore_stu_btn"):
+                chosen_id = restore_choice.split("(")[-1].replace(")", "").strip()
+                restore_student(conn, institute_id, chosen_id, actor_email=st.session_state.get("user_email", ""))
+                st.success("Student restored successfully.")
+                st.rerun()
+        else:
+            st.info("No archived students.")
+
     st.write("---")
     st.subheader("Master Financial Ledger")
     records = list_financial_records(conn, institute_id)
@@ -2204,11 +2243,11 @@ def show_admin_dashboard():
     with st.expander("➕ Create Parent Account", expanded=False):
         with st.form("create_parent_form", clear_on_submit=True):
             p_email = st.text_input("Parent Email", placeholder="parent@example.com")
-            p_pass = st.text_input("Temporary Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
+            p_pass = st.text_input("Temporary Password", type="password", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
             p_children = st.multiselect(
                 "Link to Student(s)",
-                options=[s["name"] for s in all_students],
-                help="You can also link/relink students later from the Teacher Desk."
+                options=[f"{s['name']} ({s['id']})" for s in all_students],
+                help="Students are selected by unique student ID so duplicate names cannot be linked accidentally."
             )
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_email = p_email.strip().lower()
@@ -2216,14 +2255,14 @@ def show_admin_dashboard():
                     if not is_valid_email(clean_email):
                         st.warning("Please enter a valid email address.")
                     elif not is_password_strong_enough(p_pass):
-                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
+                        st.warning(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
                     else:
                         try:
                             st.toast("Creating parent account…", icon="⏳")
                             with st.spinner("Creating parent account…"):
                                 create_parent_account(conn, institute_id, clean_email, p_pass)
-                                for name in p_children:
-                                    match = next((s for s in all_students if s["name"] == name), None)
+                                for selected in p_children:
+                                    match = next((s for s in all_students if selected.endswith(f"({s['id']})")), None)
                                     if match:
                                         update_student_parent_email(conn, institute_id, match["id"], clean_email)
                             st.success(f"Parent account created for {clean_email}. Give them this email + the password you set, and tell them to use the 'I Already Have a Login' tab.")
@@ -2257,14 +2296,14 @@ def show_admin_dashboard():
     with st.expander("➕ Create Teacher Account", expanded=False):
         with st.form("create_teacher_form", clear_on_submit=True):
             t_email = st.text_input("Teacher Email", placeholder="teacher.name@academy.com")
-            t_pass = st.text_input("Temporary Password", type="password", key="new_teacher_pass", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
+            t_pass = st.text_input("Temporary Password", type="password", key="new_teacher_pass", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
             if st.form_submit_button("Create Account", use_container_width=True):
                 clean_t_email = t_email.strip().lower()
                 if clean_t_email and t_pass.strip():
                     if not is_valid_email(clean_t_email):
                         st.warning("Please enter a valid email address.")
                     elif not is_password_strong_enough(t_pass):
-                        st.warning(f"Password should be at least {MIN_PASSWORD_LENGTH} characters.")
+                        st.warning(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
                     else:
                         try:
                             st.toast("Creating teacher account…", icon="⏳")
@@ -2364,11 +2403,11 @@ def show_super_admin_dashboard():
             elif not user_row:
                 st.error("No account found with that email.")
             elif not is_password_strong_enough(target_new_pw):
-                st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
+                st.warning(f"New password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
             else:
                 st.toast("Resetting password…", icon="⏳")
                 with st.spinner("Resetting password…"):
-                    update_password(conn, clean_target, target_new_pw)
+                    update_password(conn, clean_target, target_new_pw, force_change=True)
                     log_audit_event(
                         conn, st.session_state.get("user_email", ""), "password_reset",
                         f"Reset password for {clean_target}", user_row["institute_id"],
@@ -2392,7 +2431,7 @@ def show_super_admin_dashboard():
             ).fetchone()["password_hash"]):
                 st.error("Current password is incorrect.")
             elif not is_password_strong_enough(new_pw):
-                st.warning(f"New password should be at least {MIN_PASSWORD_LENGTH} characters.")
+                st.warning(f"New password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
             elif new_pw != confirm_pw:
                 st.warning("New password and confirmation don't match.")
             else:
@@ -2421,6 +2460,25 @@ def show_super_admin_dashboard():
 if not st.session_state.get("logged_in", False):
     show_login()
 else:
+    if st.session_state.get("must_change_password"):
+        st.title("🔐 Password Change Required")
+        st.info("Your account was created or reset with a temporary password. Please choose a new password before continuing.")
+        with st.form("forced_password_change_form", clear_on_submit=True):
+            new_pw = st.text_input("New Password", type="password", help=f"Use {MIN_PASSWORD_LENGTH}+ characters with uppercase, lowercase, number and special character.")
+            confirm_pw = st.text_input("Confirm New Password", type="password")
+            if st.form_submit_button("Set New Password", use_container_width=True, type="primary"):
+                if not is_password_strong_enough(new_pw):
+                    st.error(f"Password must be {MIN_PASSWORD_LENGTH}+ characters and include uppercase, lowercase, number and special character.")
+                elif new_pw != confirm_pw:
+                    st.error("Passwords do not match.")
+                else:
+                    update_password(conn, st.session_state.get("user_email", ""), new_pw, force_change=False)
+                    st.session_state.must_change_password = False
+                    log_audit_event(conn, st.session_state.get("user_email", ""), "password_changed_after_reset", "Temporary password replaced", st.session_state.get("institute_id"))
+                    st.success("Password updated successfully.")
+                    st.rerun()
+        st.stop()
+
     logged_role = st.session_state.get("logged_in_role", "Teacher")
     is_super = bool(st.session_state.get("is_super_admin"))
 
