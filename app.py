@@ -9,9 +9,6 @@ import html
 import csv
 import io
 import re
-import json
-import urllib.request
-import urllib.error
 
 # ----------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -29,6 +26,20 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "academy.db")
 # (manually, via the Super Admin console, until online billing is wired up).
 FREE_STUDENT_LIMIT = 15
 
+# ----------------------------------------------------
+# 1D. RAZORPAY (AUTOMATIC PAYMENT) CONFIGURATION
+# ----------------------------------------------------
+# If both keys are set as secrets, Admins get a real "Upgrade to Premium"
+# button that creates a Razorpay payment link and, once paid, flips their
+# plan automatically — no Super Admin action needed. If unset, the manual
+# UPI/bank-transfer flow (Super Admin flips the plan by hand) keeps working
+# exactly as before; nothing breaks either way.
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+USE_RAZORPAY = bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
+PREMIUM_PRICE_INR = 99
+PREMIUM_PRICE_PAISE = PREMIUM_PRICE_INR * 100  # Razorpay amounts are in paise
+
 # Super Admin (platform owner) credentials — only used the very first time the
 # app runs against a brand-new database, to seed the account. Set these as
 # environment variables on Streamlit Cloud (Settings -> Secrets) BEFORE first
@@ -44,52 +55,6 @@ SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "true").strip().
 
 # Minimum acceptable password length, enforced everywhere a password is set.
 MIN_PASSWORD_LENGTH = 8
-
-# ----------------------------------------------------
-# 1B2. RAZORPAY CONFIGURATION (self-serve Premium upgrade)
-# ----------------------------------------------------
-# Set these as environment variables (Streamlit Cloud -> Settings -> Secrets)
-# to let an Admin upgrade their own institute to Premium by paying online,
-# instead of the fully-manual "UPI/bank transfer, then Super Admin flips it"
-# flow. Get key_id/key_secret from Razorpay Dashboard -> Settings -> API Keys.
-# Currently configured with TEST keys (rzp_test_...) — Razorpay's test mode
-# lets a full payment run with a fake card, no real money moves. Swap in
-# LIVE keys (rzp_live_...) once the flow has been verified end to end; no
-# code change is needed for that, just the secret values. If these are left
-# unset, the self-serve widget simply doesn't appear and the existing manual
-# banner (pay the owner directly, they flip you) keeps working exactly as
-# before — nothing else in the app depends on Razorpay being configured.
-RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
-RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
-PREMIUM_UPGRADE_AMOUNT_INR = int(os.environ.get("PREMIUM_UPGRADE_AMOUNT_INR", "999"))
-
-def razorpay_configured() -> bool:
-    return bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
-
-def _razorpay_request(method: str, path: str, payload: dict | None = None) -> dict:
-    """Minimal Razorpay REST API client using only the stdlib (urllib) so this
-    doesn't add a new pip dependency to the project. Raises RuntimeError with
-    a human-readable message on any failure (bad keys, network issue, a
-    Razorpay-side validation error) — callers show that message directly to
-    the Admin instead of a raw traceback."""
-    url = f"https://api.razorpay.com/v1{path}"
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
-    auth = base64.b64encode(f"{RAZORPAY_KEY_ID}:{RAZORPAY_KEY_SECRET}".encode()).decode()
-    req.add_header("Authorization", f"Basic {auth}")
-    req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        try:
-            body = json.loads(e.read().decode())
-            msg = body.get("error", {}).get("description", str(e))
-        except Exception:
-            msg = str(e)
-        raise RuntimeError(f"Razorpay error: {msg}")
-    except Exception as e:
-        raise RuntimeError(f"Could not reach Razorpay: {e}")
 
 # ----------------------------------------------------
 # 1B. TURSO (REMOTE, PERSISTENT DATABASE) CONFIGURATION
@@ -328,12 +293,13 @@ def _create_schema(conn):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT
     );
-    CREATE TABLE IF NOT EXISTS premium_payment_links (
-        link_id TEXT PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS payment_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         institute_id INTEGER,
+        razorpay_link_id TEXT,
+        razorpay_link_url TEXT,
         amount INTEGER,
-        short_url TEXT,
-        status TEXT,
+        status TEXT DEFAULT 'created',
         created_at TEXT
     );
     """)
@@ -732,18 +698,20 @@ def create_institute_and_admin(conn, institute_name: str, owner_email: str, pass
         conn.commit()
         raise ValueError("An account with that email already exists.")
     conn.commit()
+    _clear_read_caches()
     return institute_id
 
-def get_institute(conn, institute_id: int):
-    row = conn.execute("SELECT * FROM institutes WHERE id=?", (institute_id,)).fetchone()
+def get_institute(_conn, institute_id: int):
+    row = _conn.execute("SELECT * FROM institutes WHERE id=?", (institute_id,)).fetchone()
     return dict(row) if row else None
+get_institute = st.cache_data(ttl=15, show_spinner=False)(get_institute)
 
-def list_institutes(conn):
+def list_institutes(_conn):
     """Same fix as get_payment_statuses_bulk: one query for all institutes'
     student counts via GROUP BY, instead of one COUNT(*) query per institute
     in a loop — matters more every month as more institutes sign up."""
-    rows = conn.execute("SELECT * FROM institutes ORDER BY id").fetchall()
-    count_rows = conn.execute(
+    rows = _conn.execute("SELECT * FROM institutes ORDER BY id").fetchall()
+    count_rows = _conn.execute(
         "SELECT institute_id, COUNT(*) as cnt FROM students WHERE (is_deleted IS NULL OR is_deleted=0) GROUP BY institute_id"
     ).fetchall()
     counts_by_institute = {r["institute_id"]: r["cnt"] for r in count_rows}
@@ -753,6 +721,7 @@ def list_institutes(conn):
         d["student_count"] = counts_by_institute.get(d["id"], 0)
         result.append(d)
     return result
+list_institutes = st.cache_data(ttl=15, show_spinner=False)(list_institutes)
 
 def set_institute_plan(conn, institute_id: int, plan: str, student_limit: int, actor_email: str = ""):
     conn.execute(
@@ -760,70 +729,85 @@ def set_institute_plan(conn, institute_id: int, plan: str, student_limit: int, a
     )
     conn.commit()
     log_audit_event(conn, actor_email, "plan_change", f"Set plan to {plan} (limit {student_limit})", institute_id)
+    _clear_read_caches()
 
-def get_or_create_premium_payment_link(conn, institute_id: int, institute_name: str, admin_email: str, force_new: bool = False) -> dict:
-    """Reuses an existing not-yet-paid Razorpay payment link for this
-    institute if one exists (so clicking 'Upgrade' repeatedly doesn't spam
-    Razorpay with new links every time) — UNLESS force_new=True, which
-    always creates a fresh link regardless of what's pending. This matters
-    because Razorpay locks in the amount at the moment a link is created:
-    changing PREMIUM_UPGRADE_AMOUNT_INR later does NOT retroactively update
-    an already-created link, so reusing one silently would keep charging the
-    old price. Any previously-pending link is marked 'superseded' (not
-    deleted — kept for the audit trail) so it stops showing up as the
-    active one. Raises RuntimeError (from _razorpay_request) on any
-    failure — callers show that message directly."""
-    if not force_new:
-        existing = conn.execute(
-            "SELECT * FROM premium_payment_links WHERE institute_id=? AND status='created' ORDER BY created_at DESC LIMIT 1",
-            (institute_id,),
-        ).fetchone()
-        if existing:
-            return dict(existing)
-    else:
+def get_razorpay_client():
+    """Returns a configured Razorpay client, or None if the two secrets
+    aren't set or the razorpay package isn't installed — callers must check
+    for None and fall back gracefully rather than crash the page."""
+    if not USE_RAZORPAY:
+        return None
+    try:
+        import razorpay
+        return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+    except Exception:
+        return None
+
+def create_upgrade_payment_link(conn, institute_id: int, institute_name: str, admin_email: str):
+    """Creates a real Razorpay payment link for one month of Premium and
+    records it so its status can be checked later. Returns (url, error) —
+    exactly one of the two is set."""
+    client = get_razorpay_client()
+    if not client:
+        return None, "Automatic payments aren't set up yet. Ask the platform owner to pay manually for now."
+    try:
+        link = client.payment_link.create({
+            "amount": PREMIUM_PRICE_PAISE,
+            "currency": "INR",
+            "description": f"Premium upgrade — {institute_name}",
+            "customer": {"email": admin_email} if admin_email else {},
+            "notify": {"sms": False, "email": bool(admin_email)},
+            "reminder_enable": False,
+            "notes": {"institute_id": str(institute_id)},
+        })
         conn.execute(
-            "UPDATE premium_payment_links SET status='superseded' WHERE institute_id=? AND status='created'",
-            (institute_id,),
+            "INSERT INTO payment_links(institute_id, razorpay_link_id, razorpay_link_url, amount, status, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (
+                institute_id, link["id"], link["short_url"], PREMIUM_PRICE_PAISE, "created",
+                datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ),
         )
         conn.commit()
+        return link["short_url"], None
+    except Exception as e:
+        return None, f"Couldn't create a payment link right now: {e}"
 
-    payload = {
-        "amount": PREMIUM_UPGRADE_AMOUNT_INR * 100,  # Razorpay wants paise, not rupees
-        "currency": "INR",
-        "description": f"Premium upgrade — {institute_name}",
-        "reference_id": f"premium-{institute_id}-{int(datetime.datetime.now().timestamp())}",
-        "notify": {"sms": False, "email": False},
-        "reminder_enable": False,
-    }
-    if admin_email:
-        payload["customer"] = {"email": admin_email}
+def get_latest_payment_link(conn, institute_id: int):
+    row = conn.execute(
+        "SELECT * FROM payment_links WHERE institute_id=? ORDER BY id DESC LIMIT 1", (institute_id,)
+    ).fetchone()
+    return dict(row) if row else None
 
-    result = _razorpay_request("POST", "/payment_links", payload)
-    created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn.execute(
-        "INSERT INTO premium_payment_links(link_id, institute_id, amount, short_url, status, created_at) VALUES (?,?,?,?,?,?)",
-        (result["id"], institute_id, PREMIUM_UPGRADE_AMOUNT_INR, result["short_url"], result.get("status", "created"), created_at),
-    )
-    conn.commit()
-    return {
-        "link_id": result["id"], "institute_id": institute_id, "amount": PREMIUM_UPGRADE_AMOUNT_INR,
-        "short_url": result["short_url"], "status": result.get("status", "created"), "created_at": created_at,
-    }
+def check_and_apply_payment(conn, institute_id: int):
+    """Asks Razorpay directly whether the institute's latest payment link was
+    actually paid — never trusts the admin's word for it. If paid, flips the
+    plan to Premium right here. Returns (success: bool, message: str)."""
+    link_row = get_latest_payment_link(conn, institute_id)
+    if not link_row:
+        return False, "No payment link found yet. Click 'Upgrade to Premium' first."
+    if link_row["status"] == "paid":
+        return True, "Already upgraded to Premium."
 
-def refresh_premium_payment_link_status(conn, institute_id: int, link_id: str, actor_email: str) -> str:
-    """Polls Razorpay for the current status of one payment link and, the
-    moment it's fully paid, flips the institute to Premium automatically —
-    the closest a Streamlit app (no public webhook endpoint to receive
-    Razorpay's server-to-server confirmation) can get to 'payment succeeds
-    -> plan upgrades' without extra hosting infrastructure."""
-    result = _razorpay_request("GET", f"/payment_links/{link_id}")
-    status = result.get("status", "created")
-    conn.execute("UPDATE premium_payment_links SET status=? WHERE link_id=?", (status, link_id))
-    conn.commit()
-    if status == "paid":
-        set_institute_plan(conn, institute_id, "Premium", 999999, actor_email=actor_email)
-        log_audit_event(conn, actor_email, "premium_self_upgrade", f"Paid via Razorpay link {link_id}", institute_id)
-    return status
+    client = get_razorpay_client()
+    if not client:
+        return False, "Automatic payments aren't set up yet."
+
+    try:
+        remote = client.payment_link.fetch(link_row["razorpay_link_id"])
+        remote_status = remote.get("status", "created")
+        conn.execute("UPDATE payment_links SET status=? WHERE id=?", (remote_status, link_row["id"]))
+        conn.commit()
+
+        if remote_status == "paid":
+            set_institute_plan(conn, institute_id, "Premium", 999999, actor_email="razorpay_auto_upgrade")
+            return True, "Payment confirmed! You're now on the Premium plan."
+        elif remote_status in ("cancelled", "expired"):
+            return False, "That payment link is no longer valid. Click 'Upgrade to Premium' to get a fresh one."
+        else:
+            return False, "We don't see a completed payment yet. If you just paid, wait a few seconds and check again."
+    except Exception as e:
+        return False, f"Couldn't check payment status: {e}"
 
 def count_students(conn, institute_id: int) -> int:
     return conn.execute(
@@ -831,11 +815,15 @@ def count_students(conn, institute_id: int) -> int:
     ).fetchone()[0]
 
 def can_add_student(conn, institute_id: int):
-    """Returns (allowed: bool, message: str|None). Premium institutes have no cap."""
-    plan = st.session_state.get("institute_plan", "Free")
+    """Returns (allowed: bool, message: str|None). Premium institutes have no cap.
+    This is the data-layer enforcement — called from add_student/bulk_add_students
+    directly, not just from the UI, so the limit can't be bypassed by any code
+    path that forgets to check first."""
+    inst = get_institute(conn, institute_id)
+    plan = inst["plan"] if inst else "Free"
     if plan == "Premium":
         return True, None
-    limit = st.session_state.get("student_limit", FREE_STUDENT_LIMIT)
+    limit = inst["student_limit"] if inst else FREE_STUDENT_LIMIT
     current = count_students(conn, institute_id)
     if current >= limit:
         return False, (
@@ -846,17 +834,18 @@ def can_add_student(conn, institute_id: int):
 
 # ---- Students ----
 
-def list_students(conn, institute_id: int, parent_email: str | None = None):
+def list_students(_conn, institute_id: int, parent_email: str | None = None):
     if parent_email:
-        rows = conn.execute(
+        rows = _conn.execute(
             "SELECT * FROM students WHERE institute_id=? AND parent_email=? AND (is_deleted IS NULL OR is_deleted=0) ORDER BY name",
             (institute_id, parent_email),
         ).fetchall()
     else:
-        rows = conn.execute(
+        rows = _conn.execute(
             "SELECT * FROM students WHERE institute_id=? AND (is_deleted IS NULL OR is_deleted=0) ORDER BY name", (institute_id,)
         ).fetchall()
     return [dict(r) for r in rows]
+list_students = st.cache_data(ttl=15, show_spinner=False)(list_students)
 
 def _student_id_prefix(institute_id: int) -> str:
     """Every institute's student IDs are scoped and separated by a dash
@@ -865,6 +854,13 @@ def _student_id_prefix(institute_id: int) -> str:
     return f"STU{institute_id}-"
 
 def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email=None):
+    # Data-layer enforcement of the Free-plan cap — this function is the
+    # single place every student insert goes through (single-add, bulk CSV
+    # import), so checking here means the limit holds even if some future UI
+    # path forgets to call can_add_student() first.
+    allowed, msg = can_add_student(conn, institute_id)
+    if not allowed:
+        raise ValueError(msg)
     # Base the next ID on the highest sequence number ever used WITHIN THIS
     # INSTITUTE, not the current row count (COUNT(*) breaks after a delete)
     # and not a global platform-wide MAX (which would leak one institute's
@@ -884,6 +880,7 @@ def add_student(conn, institute_id: int, name, grade, subject, fee, parent_email
         (new_id, name, grade, subject, fee, parent_email or None, institute_id),
     )
     conn.commit()
+    _clear_read_caches()
     return new_id
 
 def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
@@ -892,7 +889,10 @@ def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
     the same way the single-add form does. Computes the starting ID once and
     increments locally instead of re-querying MAX() per row, then commits
     once at the end — much cheaper than calling add_student() in a loop,
-    especially over the network on Turso. Returns the number of rows inserted."""
+    especially over the network on Turso. Returns the number of rows inserted.
+    Also enforces the Free-plan cap at the data layer: stops partway through
+    rather than exceeding the limit, even if the UI's own pre-check was
+    somehow bypassed or stale."""
     if not rows:
         return 0
     prefix = _student_id_prefix(institute_id)
@@ -901,11 +901,17 @@ def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
         (len(prefix) + 1, prefix + "%", institute_id),
     ).fetchone()
     next_num = (row[0] if row and row[0] is not None else 100) + 1
+    inst = get_institute(conn, institute_id)
+    plan = inst["plan"] if inst else "Free"
+    limit = (inst["student_limit"] if inst else FREE_STUDENT_LIMIT) if plan != "Premium" else None
+    current_count = count_students(conn, institute_id) if limit is not None else 0
     inserted = 0
     for r in rows:
         name = (r.get("name") or "").strip()
         if not name:
             continue
+        if limit is not None and current_count + inserted >= limit:
+            break  # stop silently at the cap — the UI already warns before this is called
         new_id = f"{prefix}{next_num}"
         next_num += 1
         try:
@@ -926,6 +932,7 @@ def bulk_add_students(conn, institute_id: int, rows: list[dict]) -> int:
         )
         inserted += 1
     conn.commit()
+    _clear_read_caches()
     return inserted
 
 def delete_student(conn, institute_id: int, student_id: str, actor_email: str = ""):
@@ -939,6 +946,7 @@ def delete_student(conn, institute_id: int, student_id: str, actor_email: str = 
     conn.commit()
     student_name = student["name"] if student else student_id
     log_audit_event(conn, actor_email, "student_deleted", f"Removed {student_name} ({student_id})", institute_id)
+    _clear_read_caches()
 
 def update_student_parent_email(conn, institute_id: int, student_id: str, parent_email: str | None):
     conn.execute(
@@ -946,6 +954,7 @@ def update_student_parent_email(conn, institute_id: int, student_id: str, parent
         (parent_email or None, student_id, institute_id),
     )
     conn.commit()
+    _clear_read_caches()
 
 def update_student(conn, institute_id: int, student_id: str, name: str, grade: str, subject: str, fee: int):
     conn.execute(
@@ -953,6 +962,7 @@ def update_student(conn, institute_id: int, student_id: str, name: str, grade: s
         (name, grade, subject, fee, student_id, institute_id),
     )
     conn.commit()
+    _clear_read_caches()
 
 def get_student(conn, institute_id: int, student_id: str):
     row = conn.execute(
@@ -962,10 +972,11 @@ def get_student(conn, institute_id: int, student_id: str):
 
 # ---- Classrooms ----
 
-def list_classrooms(conn, institute_id: int):
-    return [dict(r) for r in conn.execute(
+def list_classrooms(_conn, institute_id: int):
+    return [dict(r) for r in _conn.execute(
         "SELECT * FROM classrooms WHERE institute_id=? ORDER BY id", (institute_id,)
     ).fetchall()]
+list_classrooms = st.cache_data(ttl=15, show_spinner=False)(list_classrooms)
 
 def add_classroom(conn, institute_id: int, title, subject, section, fee):
     conn.execute(
@@ -973,6 +984,7 @@ def add_classroom(conn, institute_id: int, title, subject, section, fee):
         (title, subject, section, fee, institute_id),
     )
     conn.commit()
+    _clear_read_caches()
 
 # ---- Attendance ----
 
@@ -1011,18 +1023,18 @@ def get_payment_status(conn, institute_id: int, student_id: str) -> str:
     ).fetchone()
     return row["status"] if row else "Unpaid"
 
-def get_payment_statuses_bulk(conn, institute_id: int) -> dict:
-    """One query for every student's payment status in the institute, instead
-    of one round-trip per student. On Turso, calling get_payment_status() in
-    a loop over N students means N separate network round-trips just to
-    render a page — with 15 students called from 3 places on one tab, that's
-    45 round-trips before a single click even finishes. This does it in one.
-    Look up with statuses.get(student_id, "Unpaid") — students with no row
-    yet in payment_status default to Unpaid, same as get_payment_status()."""
-    rows = conn.execute(
+def get_payment_statuses_bulk(_conn, institute_id: int) -> dict:
+    """Fetches every student's payment status for this institute in ONE
+    query, instead of calling get_payment_status() once per student in a
+    loop. That N+1 pattern was showing up 3x on the Financial Desk alone
+    (total collected, the status-update form, the unpaid list) plus once
+    more on the Admin dashboard — with 15 students that's ~60 separate
+    Turso round-trips to render a single page. This cuts it to 1."""
+    rows = _conn.execute(
         "SELECT student_id, status FROM payment_status WHERE institute_id=?", (institute_id,)
     ).fetchall()
     return {r["student_id"]: r["status"] for r in rows}
+get_payment_statuses_bulk = st.cache_data(ttl=15, show_spinner=False)(get_payment_statuses_bulk)
 
 def _next_tx_id(conn, institute_id: int) -> str:
     # Same "highest number used, not row count" logic as student IDs — scoped
@@ -1068,6 +1080,7 @@ def set_payment_status(conn, institute_id: int, student_id: str, status: str):
             )
 
     conn.commit()
+    _clear_read_caches()
 
 def list_financial_records(conn, institute_id: int, student_id: str | None = None, student_name: str | None = None):
     if student_id or student_name:
@@ -1090,22 +1103,23 @@ def list_financial_records(conn, institute_id: int, student_id: str | None = Non
 
 # ---- Notices ----
 
-def list_notices(conn, institute_id: int, grade: str | None = None):
+def list_notices(_conn, institute_id: int, grade: str | None = None):
     """If grade is given, returns notices aimed at that grade PLUS any
     'All Classes' notices (target_grade IS NULL/empty). If grade is None,
     returns everything (used on the Teacher's own Notice Board view)."""
     if grade:
-        rows = conn.execute(
+        rows = _conn.execute(
             """SELECT * FROM notices
                WHERE institute_id=? AND (target_grade IS NULL OR target_grade='' OR target_grade=?)
                ORDER BY id DESC""",
             (institute_id, grade),
         ).fetchall()
     else:
-        rows = conn.execute(
+        rows = _conn.execute(
             "SELECT * FROM notices WHERE institute_id=? ORDER BY id DESC", (institute_id,)
         ).fetchall()
     return [dict(r) for r in rows]
+list_notices = st.cache_data(ttl=15, show_spinner=False)(list_notices)
 
 def add_notice(conn, institute_id: int, title, body, priority, date_str, target_grade: str | None = None):
     conn.execute(
@@ -1113,6 +1127,20 @@ def add_notice(conn, institute_id: int, title, body, priority, date_str, target_
         (title, body, priority, date_str, institute_id, target_grade or None),
     )
     conn.commit()
+    _clear_read_caches()
+
+def _clear_read_caches():
+    """Called after every write that could make cached reads stale. All the
+    cached functions above have a short TTL (15s) as a safety net anyway, but
+    clearing immediately means nobody ever sees stale data right after their
+    own action — e.g. adding a student and then not seeing them on the
+    roster until the cache happens to expire."""
+    for fn in (get_institute, list_institutes, list_students, list_classrooms,
+               get_payment_statuses_bulk, list_notices):
+        try:
+            fn.clear()
+        except Exception:
+            pass
 
 conn = get_connection()
 
@@ -1187,6 +1215,7 @@ def esc(value) -> str:
     if value is None:
         return ""
     return html.escape(str(value), quote=True)
+
 
 # ----------------------------------------------------
 # 6. MASTER HIGH-CONTRAST CSS STYLING
@@ -1372,10 +1401,6 @@ st.markdown(f"""
     div[data-testid="stToolbar"] {{ display: none !important; }}
     footer {{ display: none !important; }}
     div[class*="viewerBadge"] {{ display: none !important; }}
-    /* Keep the built-in "running" indicator visible and easy to notice —
-       without this, hiding the toolbar above can make it feel like nothing
-       happened when you tap a button, especially with Turso adding network
-       latency to every action. */
     div[data-testid="stStatusWidget"] {{
         display: flex !important;
         visibility: visible !important;
@@ -1391,10 +1416,6 @@ st.markdown(f"""
     div[data-testid="stStatusWidget"] * {{
         color: #ffffff !important;
     }}
-    /* Toast notifications (st.toast) need their own explicit background AND
-       text color set together — the global "p, span, label" rule above only
-       forces light text, and without a matching dark background here that
-       text can end up light-on-light and effectively invisible. */
     div[data-testid="stToast"] {{
         background-color: #1e293b !important;
         border: 1.5px solid #38bdf8 !important;
@@ -1404,9 +1425,6 @@ st.markdown(f"""
         color: #ffffff !important;
         opacity: 1 !important;
     }}
-    /* Password fields and native date pickers are OS/browser widgets on
-       mobile and don't reliably inherit the input[type="text"] styling
-       above — force them to match the dark theme explicitly. */
     input[type="password"],
     input[type="date"] {{
         background-color: #0f172a !important;
@@ -1416,16 +1434,10 @@ st.markdown(f"""
         font-weight: 600 !important;
         color-scheme: dark;
     }}
-    /* The little calendar icon inside a date input defaults to a dark icon
-       on a dark background (invisible) unless explicitly recolored. */
     input[type="date"]::-webkit-calendar-picker-indicator {{
         filter: invert(1);
         opacity: 0.8;
     }}
-    /* Instant visual feedback the moment a button is tapped, before the
-       network round-trip to the database even starts — otherwise a tap can
-       feel like it did nothing until the (Turso-backed, over-the-network)
-       rerun finishes and the page visibly changes. */
     .stButton button:active,
     div[data-testid="stFormSubmitButton"] button:active {{
         transform: scale(0.97) !important;
@@ -1485,71 +1497,68 @@ def logout_button(key: str):
         st.rerun()
 
 def render_plan_banner(institute_id: int):
-    """Shows Free-plan usage + manual-upgrade instructions on the Admin console."""
+    """Shows Free-plan usage + upgrade instructions on the Admin console."""
     plan = st.session_state.get("institute_plan", "Free")
     if plan == "Premium":
         return
     limit = st.session_state.get("student_limit", FREE_STUDENT_LIMIT)
     used = count_students(conn, institute_id)
+    manual_note = (
+        "Pay directly (UPI/bank transfer) and ask the platform owner to upgrade you, or use the automatic option below."
+        if USE_RAZORPAY else
+        "Pay the platform owner directly (UPI/bank transfer) and ask to be upgraded to Premium — it's a manual flip on their end, usually same-day."
+    )
     st.markdown(f"""
     <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid #38bdf8; border-radius: 12px; padding: 14px 18px; margin-bottom: 18px;">
         <strong style="color: #38bdf8;">Free Plan</strong>
         <span style="color: #e2e8f0;"> — {used}/{limit} students used.</span>
-        <span style="color: #94a3b8;"> Need more? Pay the platform owner directly (UPI/bank transfer) and ask to be upgraded to Premium — it's a manual flip on their end, usually same-day.</span>
+        <span style="color: #94a3b8;"> Need more? {manual_note}</span>
     </div>
     """, unsafe_allow_html=True)
 
-def render_premium_upgrade_widget(institute_id: int, institute_name: str, admin_email: str):
-    """Self-serve Premium upgrade via a real Razorpay payment link — shown
-    only for Free-plan institutes, and only when Razorpay keys are actually
-    configured. If they aren't, this renders nothing and the manual banner
-    above (pay the owner directly) remains the only upgrade path, exactly as
-    before this feature existed."""
+def render_upgrade_section(institute_id: int):
+    """The automatic-payment upgrade flow: create a Razorpay payment link,
+    then let the admin confirm once they've paid. Does nothing (renders
+    nothing) if Razorpay isn't configured or the institute is already
+    Premium — the manual flow in render_plan_banner still covers those cases."""
     plan = st.session_state.get("institute_plan", "Free")
-    if plan == "Premium" or not razorpay_configured():
+    if plan == "Premium" or not USE_RAZORPAY:
         return
 
-    st.markdown(f"#### 💳 Upgrade to Premium — pay online (₹{PREMIUM_UPGRADE_AMOUNT_INR})")
-    st.caption("Unlocks unlimited students immediately once your payment clears.")
-
-    pending = conn.execute(
-        "SELECT * FROM premium_payment_links WHERE institute_id=? AND status='created' ORDER BY created_at DESC LIMIT 1",
-        (institute_id,),
-    ).fetchone()
+    link_row = get_latest_payment_link(conn, institute_id)
+    already_paid = link_row and link_row["status"] == "paid"
+    if already_paid:
+        return
 
     col1, col2 = st.columns(2)
     with col1:
-        button_label = "🔄 Get New Payment Link" if pending else "💳 Generate Payment Link"
-        if st.button(button_label, use_container_width=True, key="gen_premium_link"):
-            try:
-                st.toast("Creating payment link…", icon="⏳")
-                with st.spinner("Creating payment link…"):
-                    get_or_create_premium_payment_link(conn, institute_id, institute_name, admin_email, force_new=bool(pending))
+        if st.button(f"⚡ Upgrade to Premium — ₹{PREMIUM_PRICE_INR}/month", use_container_width=True, key="create_upgrade_link_btn"):
+            admin_email = st.session_state.get("user_email", "")
+            institute_name = st.session_state.get("institute_name", "Your Academy")
+            st.toast("Creating payment link…", icon="⏳")
+            with st.spinner("Creating payment link…"):
+                url, err = create_upgrade_payment_link(conn, institute_id, institute_name, admin_email)
+            if err:
+                st.error(err)
+            else:
                 st.rerun()
-            except RuntimeError as e:
-                st.error(str(e))
     with col2:
-        if pending and st.button("✅ I've Paid — Check Status", use_container_width=True, key="check_premium_link"):
-            try:
-                st.toast("Checking with Razorpay…", icon="⏳")
+        if link_row and link_row["status"] != "paid":
+            if st.button("✅ I've Paid — Check Now", use_container_width=True, key="check_payment_btn"):
+                st.toast("Checking payment status…", icon="⏳")
                 with st.spinner("Checking with Razorpay…"):
-                    status = refresh_premium_payment_link_status(conn, institute_id, pending["link_id"], admin_email)
-                if status == "paid":
-                    st.success("Payment confirmed! You're now on Premium.")
+                    success, msg = check_and_apply_payment(conn, institute_id)
+                if success:
+                    st.success(msg)
                     st.rerun()
                 else:
-                    st.info(f"Not received yet (status: {status}). Complete the payment, then check again.")
-            except RuntimeError as e:
-                st.error(str(e))
+                    st.warning(msg)
 
-    if pending:
-        st.markdown(f"[👉 Click here to pay ₹{pending['amount']}]({pending['short_url']})")
-        if pending["amount"] != PREMIUM_UPGRADE_AMOUNT_INR:
-            st.caption(
-                f"⚠️ This link was created at the old price (₹{pending['amount']}). "
-                f"The current price is ₹{PREMIUM_UPGRADE_AMOUNT_INR} — click '🔄 Get New Payment Link' above for a link at the new price."
-            )
-
+    if link_row and link_row["status"] not in ("paid",):
+        st.markdown(
+            f"💳 [Click here to pay ₹{PREMIUM_PRICE_INR}]({link_row['razorpay_link_url']}) — "
+            f"then come back and click 'I've Paid — Check Now'."
+        )
     st.write("---")
 
 def refresh_institute_session(institute_id: int):
@@ -1578,8 +1587,6 @@ def render_csv_import_widget(institute_id: int, key_prefix: str):
     try:
         text = uploaded.getvalue().decode("utf-8-sig")
         reader = csv.DictReader(io.StringIO(text))
-        # Normalize header names (case/whitespace-insensitive) so "Name" or
-        # " Fee " in someone's spreadsheet export still matches.
         parsed_rows = []
         for raw_row in reader:
             norm_row = {(k or "").strip().lower(): v for k, v in raw_row.items()}
@@ -1638,7 +1645,7 @@ def show_login():
     tab_login, tab_signup = st.tabs(["🔐 Log In", "🏫 Create Institute Account"])
 
     with tab_login:
-        st.markdown("Welcome! Please log in to securely access your portal.")
+        st.markdown("Already have an account? Enter your details below.")
 
         with st.form("login_form"):
             email_input = st.text_input("Registered Email Address", placeholder="name@academy.com")
@@ -1676,23 +1683,10 @@ def show_login():
                         record_failed_login(conn, clean_email)
                         st.error("Invalid email or password. Please verify credentials.")
 
-        if SHOW_DEMO_CREDENTIALS:
-            with st.expander("Demo credentials", expanded=False):
-                st.caption(
-                    "Admin: admin@academy.com / admin123  \n"
-                    "Teacher: teacher@academy.com / teacher123  \n"
-                    "Parent (Aarav's family): parent1@academy.com / parent123  \n"
-                    "Parent (Rohan's family): parent2@academy.com / parent123"
-                )
-
     with tab_signup:
-        st.markdown("### Start your own tuition academy on this platform")
-        st.caption(f"Free plan includes up to {FREE_STUDENT_LIMIT} students, no credit card needed. Upgrade any time by contacting the platform owner.")
+        st.markdown("### New academy? Start your free account here")
+        st.caption(f"Free plan includes up to {FREE_STUDENT_LIMIT} students, no credit card needed. Upgrade any time.")
 
-        # A fresh math challenge is generated once per "session" of attempts
-        # and only regenerated after a submit (success or failure) — not on
-        # every rerun — so the numbers don't change while someone is still
-        # mid-way through filling the form.
         if "signup_captcha_a" not in st.session_state:
             st.session_state.signup_captcha_a = secrets.randbelow(9) + 1
             st.session_state.signup_captcha_b = secrets.randbelow(9) + 1
@@ -1701,9 +1695,6 @@ def show_login():
             s_institute = st.text_input("Institute / Academy Name", placeholder="e.g., Bright Minds Tuition")
             s_email = st.text_input("Your Email (this becomes your Admin login)", placeholder="owner@myacademy.com")
             s_pass = st.text_input("Create Password", type="password", help=f"At least {MIN_PASSWORD_LENGTH} characters.")
-            # Honeypot: a field real people have no reason to fill in. Basic
-            # signup bots that blindly fill every input on a page trip this;
-            # a genuine person filling out the form above never touches it.
             s_honeypot = st.text_input(
                 "Leave this field empty",
                 key="signup_honeypot",
@@ -1719,8 +1710,6 @@ def show_login():
                 correct_answer = st.session_state.signup_captcha_a + st.session_state.signup_captcha_b
 
                 if s_honeypot.strip():
-                    # Don't reveal that a honeypot exists — a generic error
-                    # keeps a bot from learning what tripped it.
                     st.error("Something went wrong. Please try again.")
                 elif captcha_answer != correct_answer:
                     st.warning("That answer isn't quite right — please try the math check again.")
@@ -1816,14 +1805,8 @@ def show_teacher_dashboard():
         "📢 Notice Board"
     ])
 
-    # Fetched ONCE here and reused across all four tabs below — Streamlit
-    # renders every tab's code on every single rerun (not just the visible
-    # one), so calling list_students() separately per tab meant every click
-    # anywhere on this page triggered 4 separate Turso round-trips for the
-    # same roster before your click was even acknowledged.
     all_students = list_students(conn, institute_id)
 
-    # ---------------- TAB 1: STUDENT MANAGEMENT ----------------
     with tab_students:
         st.subheader("Academy Student Roster")
 
@@ -1869,18 +1852,21 @@ def show_teacher_dashboard():
                             st.error(limit_msg)
                         else:
                             st.toast("Saving student…", icon="⏳")
-                            with st.spinner("Saving student…"):
-                                add_student(
-                                    conn,
-                                    institute_id,
-                                    stu_name.strip(),
-                                    stu_grade.strip() or "General",
-                                    stu_subject.strip() or "General",
-                                    stu_fee,
-                                    stu_parent_email.strip().lower() or None,
-                                )
-                            st.success(f"Added {stu_name.strip()} successfully!")
-                            st.rerun()
+                            try:
+                                with st.spinner("Saving student…"):
+                                    add_student(
+                                        conn,
+                                        institute_id,
+                                        stu_name.strip(),
+                                        stu_grade.strip() or "General",
+                                        stu_subject.strip() or "General",
+                                        stu_fee,
+                                        stu_parent_email.strip().lower() or None,
+                                    )
+                                st.success(f"Added {stu_name.strip()} successfully!")
+                                st.rerun()
+                            except ValueError as e:
+                                st.error(str(e))
                     else:
                         st.warning("Please enter student name.")
 
@@ -1921,7 +1907,6 @@ def show_teacher_dashboard():
             else:
                 st.write("No students available to remove.")
 
-    # ---------------- TAB 2: ATTENDANCE DESK ----------------
     with tab_attendance:
         st.subheader("Daily Attendance Register")
         selected_date = st.date_input(
@@ -1970,12 +1955,6 @@ def show_teacher_dashboard():
         st.write("---")
         for s in active_roster:
             s_id = s["id"]
-            # Prefill from whatever's already saved for this date; fall back
-            # to the Mark All/Clear All default for students with no record
-            # yet on this date. Including batch_stamp and the date in the key
-            # forces a brand-new checkbox widget whenever the date changes or
-            # Mark All/Clear All is clicked — otherwise Streamlit remembers
-            # the checkbox's own prior state and ignores the value= we pass in.
             default_checked = existing_for_date.get(s_id, None)
             default_checked = (default_checked == "Present") if default_checked is not None else st.session_state.att_mark_default
             attendance_status[s_id] = st.checkbox(
@@ -1999,7 +1978,6 @@ def show_teacher_dashboard():
             present_count = sum(1 for e in entries if e["status"] == "Present")
             st.success(f"Attendance recorded for {today_str}! Present: {present_count} | Absent: {len(entries) - present_count}")
 
-    # ---------------- TAB 3: FINANCIAL DESK ----------------
     with tab_financial:
         st.subheader("Tuition Fee Management")
 
@@ -2079,7 +2057,6 @@ def show_teacher_dashboard():
         else:
             st.info("No transactions recorded yet.")
 
-    # ---------------- TAB 4: NOTICE BOARD ----------------
     with tab_notices:
         st.subheader("📢 Academy Notice Board")
 
@@ -2263,7 +2240,7 @@ def show_admin_dashboard():
     render_header("Admin Master Console", f"{institute_name} • Executive Management")
 
     render_plan_banner(institute_id)
-    render_premium_upgrade_widget(institute_id, institute_name, st.session_state.get("user_email", ""))
+    render_upgrade_section(institute_id)
 
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
@@ -2279,10 +2256,6 @@ def show_admin_dashboard():
 
     st.write("---")
 
-    # Fetched once and reused below for both the summary metrics and the
-    # roster table/search — plus one bulk payment-status query instead of
-    # calling get_payment_status() once per student (the same N+1 pattern
-    # fixed on the Teacher Desk's Financial tab).
     all_students = list_students(conn, institute_id)
     enrolled_count = len(all_students)
     total_rev = sum(s.get("fee", 0) for s in all_students)
@@ -2336,18 +2309,21 @@ def show_admin_dashboard():
                         st.error(limit_msg)
                     else:
                         st.toast("Saving student…", icon="⏳")
-                        with st.spinner("Saving student…"):
-                            add_student(
-                                conn,
-                                institute_id,
-                                a_name.strip(),
-                                a_grade.strip() or "General",
-                                a_subject.strip() or "General",
-                                a_fee,
-                                a_parent_email.strip().lower() or None,
-                            )
-                        st.success(f"Added {a_name.strip()} successfully!")
-                        st.rerun()
+                        try:
+                            with st.spinner("Saving student…"):
+                                add_student(
+                                    conn,
+                                    institute_id,
+                                    a_name.strip(),
+                                    a_grade.strip() or "General",
+                                    a_subject.strip() or "General",
+                                    a_fee,
+                                    a_parent_email.strip().lower() or None,
+                                )
+                            st.success(f"Added {a_name.strip()} successfully!")
+                            st.rerun()
+                        except ValueError as e:
+                            st.error(str(e))
                 else:
                     st.warning("Please enter student name.")
 
