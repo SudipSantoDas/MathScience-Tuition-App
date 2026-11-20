@@ -991,6 +991,7 @@ def esc(value) -> str:
     return html.escape(str(value), quote=True)
 
 # ----------------------------------------------------
+# ----------------------------------------------------
 # 6. MASTER HIGH-CONTRAST CSS STYLING
 # ----------------------------------------------------
 st.markdown(f"""
@@ -1173,17 +1174,27 @@ st.markdown(f"""
     }}
     div[data-testid="stToolbar"] {{ display: none !important; }}
     footer {{ display: none !important; }}
-    [data-testid="stAlert"] {{
-        background-color: #1e293b !important;
-        border: 1px solid rgba(56, 189, 248, 0.35) !important;
-        border-radius: 12px !important;
-    }}
-    [data-testid="stAlert"] p,
-    [data-testid="stAlert"] span,
-    [data-testid="stAlert"] div {{
-        color: #f1f5f9 !important;
-    }}
     div[class*="viewerBadge"] {{ display: none !important; }}
+
+    /* Dark-mode fix for st.info / st.warning / st.success / st.error boxes */
+    [data-testid="stAlert"],
+    [data-testid="stNotification"],
+    div[data-baseweb="notification"],
+    div[role="alert"] {{
+        background-color: #1e293b !important;
+        background: #1e293b !important;
+        border: 1px solid rgba(56, 189, 248, 0.4) !important;
+        border-radius: 12px !important;
+        color: #f8fafc !important;
+    }}
+    [data-testid="stAlert"] *,
+    [data-testid="stNotification"] *,
+    div[data-baseweb="notification"] *,
+    div[role="alert"] * {{
+        color: #f8fafc !important;
+        -webkit-text-fill-color: #f8fafc !important;
+    }}
+
     div[data-testid="stStatusWidget"] {{
         display: flex !important;
         visibility: visible !important;
@@ -1227,9 +1238,6 @@ st.markdown(f"""
         opacity: 0.85 !important;
         transition: transform 0.05s ease, opacity 0.05s ease !important;
     }}
-    /* Login-page role guidance boxes — colored border per role so the two
-       paths (existing login vs new academy signup) are visually distinct
-       at a glance, not just via tab labels. */
     .login-guide-box {{
         background: rgba(56, 189, 248, 0.08);
         border: 1.5px solid #38bdf8;
