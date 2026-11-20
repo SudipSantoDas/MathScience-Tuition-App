@@ -1173,6 +1173,16 @@ st.markdown(f"""
     }}
     div[data-testid="stToolbar"] {{ display: none !important; }}
     footer {{ display: none !important; }}
+    [data-testid="stAlert"] {{
+        background-color: #1e293b !important;
+        border: 1px solid rgba(56, 189, 248, 0.35) !important;
+        border-radius: 12px !important;
+    }}
+    [data-testid="stAlert"] p,
+    [data-testid="stAlert"] span,
+    [data-testid="stAlert"] div {{
+        color: #f1f5f9 !important;
+    }}
     div[class*="viewerBadge"] {{ display: none !important; }}
     div[data-testid="stStatusWidget"] {{
         display: flex !important;
