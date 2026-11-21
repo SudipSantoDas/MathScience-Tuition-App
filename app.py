@@ -1268,70 +1268,35 @@ def go_to(view: str):
     st.session_state.active_view = view
 
 def render_header(title: str, subtitle: str, size: int = 48):
-    components.html(
-        """
-        <script>
-        (function() {
-            const doc = window.parent.document;
-            if (!doc.getElementById('ms-sidebar-reopen-btn')) {
-                const btn = doc.createElement('button');
-                btn.id = 'ms-sidebar-reopen-btn';
-                btn.type = 'button';
-                btn.innerHTML = '☰ Sidebar';
-                Object.assign(btn.style, {
-                    position: 'fixed',
-                    top: '12px',
-                    left: '14px',
-                    zIndex: '1000000',
-                    background: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)',
-                    color: '#ffffff',
-                    border: '1px solid rgba(125, 211, 252, 0.75)',
-                    borderRadius: '10px',
-                    padding: '7px 13px',
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    boxShadow: '0 0 18px rgba(56, 189, 248, 0.55), 0 4px 12px rgba(15, 23, 42, 0.65)',
-                    letterSpacing: '0.3px'
-                });
-                btn.onclick = function() {
-                    const target =
+    col_btn, col_hdr = st.columns([1.3, 8.7])
+    with col_btn:
+        if st.button("☰ Sidebar", key=f"reopen_sidebar_{title}"):
+            components.html(
+                """
+                <script>
+                (function() {
+                    const doc = window.parent.document;
+                    const btn =
                         doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
                         doc.querySelector('[data-testid="collapsedControl"] button') ||
                         doc.querySelector('[data-testid="stSidebarCollapseButton"]') ||
                         doc.querySelector('[data-testid="collapsedControl"]');
-                    if (target) {
-                        target.click();
-                    }
-                    const sb = doc.querySelector('section[data-testid="stSidebar"]');
-                    if (sb) {
-                        const isHidden = sb.getAttribute('aria-expanded') === 'false' || sb.offsetWidth === 0;
-                        if (isHidden) {
-                            sb.setAttribute('aria-expanded', 'true');
-                            sb.style.display = 'flex';
-                            sb.style.visibility = 'visible';
-                            sb.style.transform = 'translateX(0px)';
-                            sb.style.width = '21rem';
-                            sb.style.minWidth = '21rem';
-                        }
-                    }
-                };
-                doc.body.appendChild(btn);
-            }
-        })();
-        </script>
-        """,
-        height=0,
-    )
-    st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 14px; margin-top: 28px; margin-bottom: 18px; background: rgba(30, 41, 59, 0.78); padding: 14px 18px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.35); box-shadow: 0 8px 24px rgba(2, 6, 23, 0.45);">
-        {logo_img_tag(size)}
-        <div>
-            <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{esc(title)}</h2>
-            <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{esc(subtitle)}</p>
+                    if (btn) btn.click();
+                })();
+                </script>
+                """,
+                height=0,
+            )
+    with col_hdr:
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
+            {logo_img_tag(size)}
+            <div>
+                <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{esc(title)}</h2>
+                <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{esc(subtitle)}</p>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
 def render_admin_quick_nav(current: str):
     if st.session_state.get("logged_in_role") != "Admin" or st.session_state.get("is_super_admin"):
