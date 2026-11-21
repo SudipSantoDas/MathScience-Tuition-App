@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import sqlite3
 import hashlib
 import secrets
@@ -1267,15 +1268,45 @@ def go_to(view: str):
     st.session_state.active_view = view
 
 def render_header(title: str, subtitle: str, size: int = 48):
-    st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
-        {logo_img_tag(size)}
-        <div>
-            <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{esc(title)}</h2>
-            <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{esc(subtitle)}</p>
+    col_btn, col_hdr = st.columns([1.4, 8.6])
+    with col_btn:
+        if st.button("☰ Sidebar", key=f"reopen_sidebar_{title}", use_container_width=True):
+            components.html(
+                """
+                <script>
+                (function() {
+                    const doc = window.parent.document;
+                    const btn =
+                        doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
+                        doc.querySelector('[data-testid="collapsedControl"] button') ||
+                        doc.querySelector('[data-testid="stSidebarCollapseButton"]') ||
+                        doc.querySelector('[data-testid="collapsedControl"]');
+                    if (btn) {
+                        btn.click();
+                    } else {
+                        const sb = doc.querySelector('section[data-testid="stSidebar"]');
+                        if (sb) {
+                            sb.setAttribute('aria-expanded', 'true');
+                            sb.style.display = 'block';
+                            sb.style.visibility = 'visible';
+                            sb.style.transform = 'none';
+                        }
+                    }
+                })();
+                </script>
+                """,
+                height=0,
+            )
+    with col_hdr:
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
+            {logo_img_tag(size)}
+            <div>
+                <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{esc(title)}</h2>
+                <p style="margin: 0; color: #38bdf8; font-size: 13px; font-weight: 500;">{esc(subtitle)}</p>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
 def render_admin_quick_nav(current: str):
     if st.session_state.get("logged_in_role") != "Admin" or st.session_state.get("is_super_admin"):
