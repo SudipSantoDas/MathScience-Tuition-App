@@ -1005,40 +1005,42 @@ st.markdown(f"""
     }}
     header[data-testid="stHeader"] {{
         background: transparent !important;
-        z-index: 999991 !important;
+        z-index: 999995 !important;
+        pointer-events: none !important;
     }}
-    header[data-testid="stHeader"] button {{
-        background: rgba(15, 23, 42, 0.85) !important;
-        border: 1.5px solid #38bdf8 !important;
-        border-radius: 8px !important;
-        color: #38bdf8 !important;
+    header[data-testid="stHeader"] button,
+    [data-testid="collapsedControl"],
+    [data-testid="collapsedControl"] button,
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarCollapseButton"] button {{
+        pointer-events: auto !important;
         visibility: visible !important;
-        margin-left: 8px !important;
-        margin-top: 4px !important;
+        opacity: 1 !important;
     }}
-    header[data-testid="stHeader"] button svg {{
-        fill: #38bdf8 !important;
-        color: #38bdf8 !important;
-    }}
-    [data-testid="collapsedControl"] {{
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapseButton"] {{
         display: flex !important;
-        visibility: visible !important;
         position: fixed !important;
-        top: 12px !important;
-        left: 12px !important;
+        top: 14px !important;
+        left: 14px !important;
         z-index: 999999 !important;
     }}
-    [data-testid="collapsedControl"] button {{
+    [data-testid="collapsedControl"] button,
+    [data-testid="stSidebarCollapseButton"] button {{
         background: #0284c7 !important;
         border: 2px solid #38bdf8 !important;
         border-radius: 50% !important;
         width: 42px !important;
         height: 42px !important;
+        min-width: 42px !important;
+        min-height: 42px !important;
         box-shadow: 0 0 15px rgba(56, 189, 248, 0.6) !important;
     }}
-    [data-testid="collapsedControl"] svg {{
+    [data-testid="collapsedControl"] svg,
+    [data-testid="stSidebarCollapseButton"] svg {{
         fill: #ffffff !important;
         stroke: #ffffff !important;
+        color: #ffffff !important;
         width: 22px !important;
         height: 22px !important;
     }}
