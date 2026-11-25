@@ -997,8 +997,11 @@ def esc(value) -> str:
 # ----------------------------------------------------
 st.markdown(f"""
 <style>
-    .stApp {{
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    html, body, .stApp {{
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        background: radial-gradient(circle at top left, #132038 0%, #090e1a 48%, #060911 100%) !important;
         background-attachment: fixed !important;
     }}
     p, span, label, .stMarkdown p, [data-testid="stMarkdownContainer"] p {{
@@ -1007,7 +1010,6 @@ st.markdown(f"""
     header[data-testid="stHeader"] {{
         background: transparent !important;
         z-index: 999995 !important;
-        pointer-events: none !important;
     }}
     [data-testid="collapsedControl"],
     [data-testid="collapsedControl"] button,
@@ -1019,37 +1021,31 @@ st.markdown(f"""
         visibility: visible !important;
         opacity: 1 !important;
         pointer-events: auto !important;
-        position: fixed !important;
-        top: 12px !important;
-        left: 12px !important;
         z-index: 999999 !important;
     }}
     [data-testid="collapsedControl"] button,
     [data-testid="stSidebarCollapseButton"] button,
     [data-testid="stSidebarCollapsedControl"] button {{
-        background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%) !important;
-        border: 1.5px solid rgba(125, 211, 252, 0.85) !important;
-        border-radius: 50% !important;
-        width: 42px !important;
-        height: 42px !important;
-        min-width: 42px !important;
-        min-height: 42px !important;
-        box-shadow: 0 0 18px rgba(56, 189, 248, 0.65) !important;
+        background: rgba(15, 23, 42, 0.9) !important;
+        border: 1px solid rgba(56, 189, 248, 0.45) !important;
+        border-radius: 10px !important;
+        width: 38px !important;
+        height: 38px !important;
+        min-width: 38px !important;
+        min-height: 38px !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
     }}
     [data-testid="collapsedControl"] svg,
     [data-testid="stSidebarCollapseButton"] svg,
     [data-testid="stSidebarCollapsedControl"] svg {{
-        fill: #ffffff !important;
-        stroke: #ffffff !important;
-        color: #ffffff !important;
-        width: 22px !important;
-        height: 22px !important;
+        fill: #e2e8f0 !important;
+        stroke: #e2e8f0 !important;
+        color: #e2e8f0 !important;
     }}
     section[data-testid="stSidebar"] {{
-        background-color: #0b1329 !important;
-        background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
-        border-right: 2px solid #38bdf8 !important;
-        box-shadow: 6px 0 25px rgba(0, 0, 0, 0.8) !important;
+        background: linear-gradient(180deg, #0b1222 0%, #070b14 100%) !important;
+        border-right: 1px solid rgba(148, 163, 184, 0.16) !important;
+        box-shadow: 8px 0 28px rgba(0, 0, 0, 0.55) !important;
     }}
     section[data-testid="stSidebar"][data-collapsed="false"] {{
         display: flex !important;
@@ -1071,8 +1067,9 @@ st.markdown(f"""
         font-weight: 700 !important;
     }}
     div[data-baseweb="select"] > div {{
-        background-color: #1e293b !important;
-        border: 1px solid #334155 !important;
+        background-color: #111827 !important;
+        border: 1px solid rgba(148, 163, 184, 0.24) !important;
+        border-radius: 10px !important;
         color: #ffffff !important;
     }}
     ul[data-baseweb="menu"],
@@ -1081,137 +1078,150 @@ st.markdown(f"""
     ul[data-baseweb="menu"] li span {{
         background-color: #ffffff !important;
         color: #0f172a !important;
-        font-weight: 700 !important;
+        font-weight: 600 !important;
     }}
     ul[data-baseweb="menu"] li:hover,
     ul[data-baseweb="menu"] li[aria-selected="true"] {{
         background-color: #e0f2fe !important;
-        color: #0284c7 !important;
+        color: #0369a1 !important;
     }}
     div[data-baseweb="input"] > div,
     input.st-bc,
     input[type="text"],
     input[type="number"] {{
-        background-color: #0f172a !important;
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-        border: 1.5px solid #334155 !important;
-        font-weight: 600 !important;
+        background-color: #0b1220 !important;
+        color: #f8fafc !important;
+        -webkit-text-fill-color: #f8fafc !important;
+        border: 1px solid rgba(148, 163, 184, 0.24) !important;
+        border-radius: 10px !important;
+        font-weight: 500 !important;
     }}
     input::placeholder {{
-        color: #94a3b8 !important;
-        -webkit-text-fill-color: #94a3b8 !important;
+        color: #64748b !important;
+        -webkit-text-fill-color: #64748b !important;
         opacity: 1 !important;
     }}
     div[data-testid="stNumberInput"] button {{
-        background-color: #1e293b !important;
+        background-color: #111827 !important;
         color: #38bdf8 !important;
-        border: 1px solid #334155 !important;
+        border: 1px solid rgba(148, 163, 184, 0.2) !important;
+    }}
+    [data-testid="stExpander"] {{
+        background: rgba(17, 24, 39, 0.72) !important;
+        border: 1px solid rgba(148, 163, 184, 0.16) !important;
+        border-radius: 14px !important;
     }}
     [data-testid="stExpander"] summary {{
-        background: #1e293b !important;
-        border-radius: 12px 12px 0 0 !important;
+        background: rgba(15, 23, 42, 0.85) !important;
+        border-radius: 14px !important;
     }}
     [data-testid="stExpander"] summary * {{
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        font-size: 16px !important;
+        color: #f8fafc !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
     }}
     [data-testid="stExpander"] summary svg {{
         fill: #38bdf8 !important;
     }}
     h1, h2, h3, h4, h5, h6 {{
-        color: #ffffff !important;
+        color: #f8fafc !important;
         font-weight: 700 !important;
+        letter-spacing: -0.015em !important;
     }}
+    /* Primary buttons — refined sky-to-indigo executive gradient */
     div[data-testid="stFormSubmitButton"] button,
     .stButton button,
     button[kind="primaryFormSubmit"] {{
-        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%) !important;
+        background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%) !important;
         color: #ffffff !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 12px !important;
-        padding: 10px 20px !important;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3) !important;
+        font-weight: 600 !important;
+        border: 1px solid rgba(125, 211, 252, 0.28) !important;
+        border-radius: 11px !important;
+        padding: 9px 18px !important;
+        box-shadow: 0 6px 18px rgba(14, 165, 233, 0.22) !important;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease !important;
         width: 100% !important;
     }}
+    div[data-testid="stFormSubmitButton"] button:hover,
+    .stButton button:hover {{
+        transform: translateY(-1px) !important;
+        filter: brightness(1.06) !important;
+        box-shadow: 0 8px 22px rgba(14, 165, 233, 0.32) !important;
+    }}
+    /* Secondary buttons — restrained luxury violet/rose accent */
     button[kind="secondary"] {{
-        background: linear-gradient(135deg, #f43f5e 0%, #e11d48 45%, #7c3aed 100%) !important;
-        color: #ffffff !important;
-        border: 1px solid rgba(251, 113, 133, 0.85) !important;
-        border-radius: 12px !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.3px !important;
-        box-shadow:
-            0 0 18px rgba(244, 63, 94, 0.5),
-            0 0 34px rgba(124, 58, 237, 0.3),
-            inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
-        transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease !important;
+        background: linear-gradient(135deg, #1e293b 0%, #312e81 100%) !important;
+        color: #f8fafc !important;
+        border: 1px solid rgba(129, 140, 248, 0.45) !important;
+        border-radius: 11px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.01em !important;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease !important;
     }}
     button[kind="secondary"]:hover {{
         transform: translateY(-1px) !important;
-        filter: brightness(1.1) !important;
-        box-shadow:
-            0 0 24px rgba(244, 63, 94, 0.78),
-            0 0 44px rgba(124, 58, 237, 0.48),
-            inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
+        filter: brightness(1.08) !important;
+        box-shadow: 0 8px 24px rgba(79, 70, 229, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
     }}
     button[data-baseweb="tab"] {{
         color: #94a3b8 !important;
         font-weight: 600 !important;
-        font-size: 15px !important;
+        font-size: 14px !important;
     }}
     button[data-baseweb="tab"][aria-selected="true"] {{
         color: #38bdf8 !important;
         font-weight: 700 !important;
     }}
-    [data-testid="stExpander"] {{
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 12px !important;
-    }}
     .glass-card {{
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba(17, 24, 39, 0.72);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 22px;
-        margin-bottom: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 16px;
     }}
     .portal-btn {{
         display: inline-block;
-        background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+        background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
         color: #ffffff !important;
-        font-family: 'Inter', system-ui, sans-serif;
         font-size: 13px;
-        font-weight: 700;
-        padding: 10px 22px;
-        border-radius: 12px;
+        font-weight: 600;
+        padding: 10px 20px;
+        border-radius: 11px;
         text-decoration: none;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+        box-shadow: 0 6px 18px rgba(14, 165, 233, 0.25);
+    }}
+    [data-testid="stMetric"] {{
+        background: rgba(17, 24, 39, 0.72);
+        border: 1px solid rgba(148, 163, 184, 0.15);
+        border-radius: 14px;
+        padding: 14px 16px;
     }}
     [data-testid="stMetricValue"] {{
         font-size: 26px !important;
         font-weight: 800;
-        color: #06b6d4 !important;
+        color: #38bdf8 !important;
+        font-variant-numeric: tabular-nums !important;
     }}
     [data-testid="stMetricLabel"] {{
         color: #94a3b8 !important;
+        font-size: 12px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.04em !important;
     }}
     div[data-testid="stToolbar"] {{ display: none !important; }}
     footer {{ display: none !important; }}
     div[class*="viewerBadge"] {{ display: none !important; }}
 
-    /* Dark-mode fix for st.info / st.warning / st.success / st.error boxes */
     [data-testid="stAlert"],
     [data-testid="stNotification"],
     div[data-baseweb="notification"],
     div[role="alert"] {{
-        background-color: #1e293b !important;
-        background: #1e293b !important;
-        border: 1px solid rgba(56, 189, 248, 0.4) !important;
+        background-color: #111827 !important;
+        background: #111827 !important;
+        border: 1px solid rgba(56, 189, 248, 0.3) !important;
         border-radius: 12px !important;
         color: #f8fafc !important;
     }}
@@ -1231,7 +1241,7 @@ st.markdown(f"""
         top: 10px !important;
         right: 12px !important;
         z-index: 999999 !important;
-        background: rgba(2, 132, 199, 0.9) !important;
+        background: rgba(14, 165, 233, 0.9) !important;
         border-radius: 20px !important;
         padding: 4px 10px !important;
     }}
@@ -1239,9 +1249,9 @@ st.markdown(f"""
         color: #ffffff !important;
     }}
     div[data-testid="stToast"] {{
-        background-color: #1e293b !important;
-        border: 1.5px solid #38bdf8 !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+        background-color: #111827 !important;
+        border: 1px solid rgba(56, 189, 248, 0.5) !important;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
     }}
     div[data-testid="stToast"] * {{
         color: #ffffff !important;
@@ -1249,11 +1259,12 @@ st.markdown(f"""
     }}
     input[type="password"],
     input[type="date"] {{
-        background-color: #0f172a !important;
+        background-color: #0b1220 !important;
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
-        border: 1.5px solid #334155 !important;
-        font-weight: 600 !important;
+        border: 1px solid rgba(148, 163, 184, 0.24) !important;
+        border-radius: 10px !important;
+        font-weight: 500 !important;
         color-scheme: dark;
     }}
     input[type="date"]::-webkit-calendar-picker-indicator {{
@@ -1262,30 +1273,28 @@ st.markdown(f"""
     }}
     .stButton button:active,
     div[data-testid="stFormSubmitButton"] button:active {{
-        transform: scale(0.97) !important;
-        opacity: 0.85 !important;
-        transition: transform 0.05s ease, opacity 0.05s ease !important;
+        transform: scale(0.98) !important;
+        opacity: 0.9 !important;
     }}
     .login-guide-box {{
         background: rgba(56, 189, 248, 0.08);
-        border: 1.5px solid #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.45);
         border-radius: 12px;
         padding: 14px 18px;
         margin-bottom: 16px;
     }}
     .login-guide-box.signup {{
         background: rgba(74, 222, 128, 0.08);
-        border-color: #4ade80;
+        border-color: rgba(74, 222, 128, 0.45);
     }}
     .block-container {{
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        padding-top: 1.5rem !important;
+        padding-bottom: 4rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
     }}
 </style>
 """, unsafe_allow_html=True)
-
 # ----------------------------------------------------
 # 7. SHARED HELPERS
 # ----------------------------------------------------
