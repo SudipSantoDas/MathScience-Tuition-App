@@ -1309,25 +1309,54 @@ def render_header(title: str, subtitle: str, size: int = 48):
         <script>
         (function() {
             const doc = window.parent.document;
-            ['ms-sidebar-reopen-btn', 'ms-real-sidebar-btn'].forEach(function(id) {
-                const el = doc.getElementById(id);
-                if (el) el.remove();
-            });
-            const hdr = doc.querySelector('header[data-testid="stHeader"]');
-            if (hdr) {
-                hdr.style.pointerEvents = 'auto';
-                hdr.style.zIndex = '999995';
+            let btn = doc.getElementById('ms-reopen-sidebar-btn');
+            if (!btn) {
+                btn = doc.createElement('button');
+                btn.id = 'ms-reopen-sidebar-btn';
+                btn.type = 'button';
+                btn.title = 'Open Sidebar';
+                btn.innerHTML = '&#9776;';
+                btn.style.cssText = [
+                    'position: fixed',
+                    'top: 12px',
+                    'left: 12px',
+                    'width: 40px',
+                    'height: 40px',
+                    'border-radius: 50%',
+                    'border: 1.5px solid #7dd3fc',
+                    'background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%)',
+                    'color: #ffffff',
+                    'font-size: 18px',
+                    'font-weight: 700',
+                    'cursor: pointer',
+                    'z-index: 999999',
+                    'display: flex',
+                    'align-items: center',
+                    'justify-content: center',
+                    'box-shadow: 0 0 18px rgba(56, 189, 248, 0.7)'
+                ].join(';');
+                btn.addEventListener('click', function() {
+                    const nativeBtn = doc.querySelector(
+                        '[data-testid="stSidebarCollapsedControl"] button, [data-testid="collapsedControl"] button, button[aria-label*="sidebar" i]'
+                    );
+                    if (nativeBtn) {
+                        nativeBtn.click();
+                    }
+                    const sb = doc.querySelector('section[data-testid="stSidebar"]');
+                    if (sb) {
+                        sb.setAttribute('data-collapsed', 'false');
+                        sb.style.display = 'flex';
+                        sb.style.visibility = 'visible';
+                        sb.style.opacity = '1';
+                        sb.style.transform = 'translateX(0px)';
+                        sb.style.marginLeft = '0px';
+                    }
+                });
+                doc.body.appendChild(btn);
             }
-            const btns = doc.querySelectorAll(
-                '[data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"], [data-testid="stSidebarCollapseButton"]'
-            );
-            btns.forEach(function(el) {
-                el.style.display = 'flex';
-                el.style.visibility = 'visible';
-                el.style.opacity = '1';
-                el.style.pointerEvents = 'auto';
-                el.style.zIndex = '999999';
-            });
+            const sb = doc.querySelector('section[data-testid="stSidebar"]');
+            const isCollapsed = !sb || sb.getAttribute('data-collapsed') === 'true';
+            btn.style.display = isCollapsed ? 'flex' : 'none';
         })();
         </script>
         """,
