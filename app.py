@@ -1313,28 +1313,21 @@ def render_header(title: str, subtitle: str, size: int = 48):
                 const el = doc.getElementById(id);
                 if (el) el.remove();
             });
-            try {
-                Object.keys(window.parent.localStorage).forEach(function(k) {
-                    if (k.toLowerCase().includes('sidebar')) {
-                        window.parent.localStorage.removeItem(k);
-                    }
-                });
-            } catch (e) {}
-            const sb = doc.querySelector('section[data-testid="stSidebar"]');
-            if (sb && sb.getAttribute('data-collapsed') === 'true') {
-                const expandBtn = doc.querySelector(
-                    '[data-testid="stSidebarCollapsedControl"] button, [data-testid="collapsedControl"] button, button[aria-label*="sidebar" i], button[title*="sidebar" i]'
-                );
-                if (expandBtn) {
-                    expandBtn.click();
-                } else {
-                    sb.setAttribute('data-collapsed', 'false');
-                    sb.style.marginLeft = '0px';
-                    sb.style.transform = 'translateX(0px)';
-                    sb.style.display = 'flex';
-                    sb.style.visibility = 'visible';
-                }
+            const hdr = doc.querySelector('header[data-testid="stHeader"]');
+            if (hdr) {
+                hdr.style.pointerEvents = 'auto';
+                hdr.style.zIndex = '999995';
             }
+            const btns = doc.querySelectorAll(
+                '[data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"], [data-testid="stSidebarCollapseButton"]'
+            );
+            btns.forEach(function(el) {
+                el.style.display = 'flex';
+                el.style.visibility = 'visible';
+                el.style.opacity = '1';
+                el.style.pointerEvents = 'auto';
+                el.style.zIndex = '999999';
+            });
         })();
         </script>
         """,
