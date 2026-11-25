@@ -1051,6 +1051,17 @@ st.markdown(f"""
         border-right: 2px solid #38bdf8 !important;
         box-shadow: 6px 0 25px rgba(0, 0, 0, 0.8) !important;
     }}
+    section[data-testid="stSidebar"][data-collapsed="false"] {{
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        transform: translateX(0px) !important;
+        z-index: 999990 !important;
+    }}
+    section[data-testid="stSidebar"][data-collapsed="true"] {{
+        display: none !important;
+        visibility: hidden !important;
+    }}
     section[data-testid="stSidebar"] * {{
         color: #f1f5f9 !important;
     }}
@@ -1286,15 +1297,59 @@ def render_header(title: str, subtitle: str, size: int = 48):
         """
         <script>
         (function() {
-            const b = window.parent.document.getElementById('ms-sidebar-reopen-btn');
-            if (b) b.remove();
+            const doc = window.parent.document;
+            const oldBtn = doc.getElementById('ms-sidebar-reopen-btn');
+            if (oldBtn) oldBtn.remove();
+
+            let btn = doc.getElementById('ms-real-sidebar-btn');
+            if (!btn) {
+                btn = doc.createElement('button');
+                btn.id = 'ms-real-sidebar-btn';
+                btn.type = 'button';
+                btn.innerHTML = '☰ Sidebar';
+                Object.assign(btn.style, {
+                    position: 'fixed',
+                    top: '12px',
+                    left: '12px',
+                    zIndex: '1000000',
+                    background: 'linear-gradient(135deg, #0284c7 0%, #4f46e5 100%)',
+                    color: '#ffffff',
+                    border: '1.5px solid rgba(125, 211, 252, 0.85)',
+                    borderRadius: '10px',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    boxShadow: '0 0 16px rgba(56, 189, 248, 0.6)'
+                });
+                doc.body.appendChild(btn);
+            }
+
+            btn.onclick = function() {
+                const nativeBtn =
+                    doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
+                    doc.querySelector('[data-testid="stSidebarCollapsedControl"] button') ||
+                    doc.querySelector('[data-testid="collapsedControl"] button');
+                if (nativeBtn) {
+                    nativeBtn.click();
+                }
+                const sb = doc.getElementById('stSidebar') || doc.querySelector('section[data-testid="stSidebar"]');
+                if (sb) {
+                    const isCollapsed = sb.getAttribute('data-collapsed') === 'true';
+                    const nextCollapsed = !isCollapsed;
+                    sb.setAttribute('data-collapsed', String(nextCollapsed));
+                    sb.setAttribute('aria-expanded', String(!nextCollapsed));
+                    sb.style.display = nextCollapsed ? 'none' : 'flex';
+                    sb.style.visibility = nextCollapsed ? 'hidden' : 'visible';
+                }
+            };
         })();
         </script>
         """,
         height=0,
     )
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
+    <div style="display: flex; align-items: center; gap: 14px; margin-top: 28px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
         {logo_img_tag(size)}
         <div>
             <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{esc(title)}</h2>
