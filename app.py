@@ -1009,28 +1009,33 @@ st.markdown(f"""
         z-index: 999995 !important;
     }}
     [data-testid="collapsedControl"],
-    [data-testid="collapsedControl"] button,
+    [data-testid="collapsedControl"] > button,
     [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarCollapseButton"] button,
+    [data-testid="stSidebarCollapseButton"] > button,
     [data-testid="stSidebarCollapsedControl"],
-    [data-testid="stSidebarCollapsedControl"] button {{
+    [data-testid="stSidebarCollapsedControl"] > button {{
         display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
         visibility: visible !important;
         opacity: 1 !important;
         pointer-events: auto !important;
+        position: fixed !important;
+        top: 12px !important;
+        left: 12px !important;
         z-index: 999999 !important;
     }}
-    [data-testid="collapsedControl"] button,
-    [data-testid="stSidebarCollapseButton"] button,
-    [data-testid="stSidebarCollapsedControl"] button {{
+    [data-testid="collapsedControl"] > button,
+    [data-testid="stSidebarCollapseButton"] > button,
+    [data-testid="stSidebarCollapsedControl"] > button {{
         background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%) !important;
-        border: 1.5px solid rgba(125, 211, 252, 0.85) !important;
+        border: 1.5px solid #7dd3fc !important;
         border-radius: 50% !important;
         width: 40px !important;
         height: 40px !important;
         min-width: 40px !important;
         min-height: 40px !important;
-        box-shadow: 0 0 18px rgba(56, 189, 248, 0.65) !important;
+        box-shadow: 0 0 18px rgba(56, 189, 248, 0.7) !important;
     }}
     [data-testid="collapsedControl"] svg,
     [data-testid="stSidebarCollapseButton"] svg,
@@ -1038,6 +1043,8 @@ st.markdown(f"""
         fill: #ffffff !important;
         stroke: #ffffff !important;
         color: #ffffff !important;
+        width: 20px !important;
+        height: 20px !important;
     }}
     section[data-testid="stSidebar"] {{
         background-color: #0b1329 !important;
