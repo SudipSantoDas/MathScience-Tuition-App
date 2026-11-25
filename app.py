@@ -1306,13 +1306,35 @@ def render_header(title: str, subtitle: str, size: int = 48):
                 const el = doc.getElementById(id);
                 if (el) el.remove();
             });
+            try {
+                Object.keys(window.parent.localStorage).forEach(function(k) {
+                    if (k.toLowerCase().includes('sidebar')) {
+                        window.parent.localStorage.removeItem(k);
+                    }
+                });
+            } catch (e) {}
+            const sb = doc.querySelector('section[data-testid="stSidebar"]');
+            if (sb && sb.getAttribute('data-collapsed') === 'true') {
+                const expandBtn = doc.querySelector(
+                    '[data-testid="stSidebarCollapsedControl"] button, [data-testid="collapsedControl"] button, button[aria-label*="sidebar" i], button[title*="sidebar" i]'
+                );
+                if (expandBtn) {
+                    expandBtn.click();
+                } else {
+                    sb.setAttribute('data-collapsed', 'false');
+                    sb.style.marginLeft = '0px';
+                    sb.style.transform = 'translateX(0px)';
+                    sb.style.display = 'flex';
+                    sb.style.visibility = 'visible';
+                }
+            }
         })();
         </script>
         """,
         height=0,
     )
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 14px; background: rgba(30, 41, 59, 0.7); padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.3);">
         {logo_img_tag(size)}
         <div>
             <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">{esc(title)}</h2>
