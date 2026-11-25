@@ -1009,22 +1009,35 @@ st.markdown(f"""
         z-index: 999995 !important;
         pointer-events: none !important;
     }}
-    header[data-testid="stHeader"] button,
     [data-testid="collapsedControl"],
     [data-testid="collapsedControl"] button,
     [data-testid="stSidebarCollapseButton"],
     [data-testid="stSidebarCollapseButton"] button {{
-        pointer-events: auto !important;
+        display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-    }}
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapseButton"] {{
-        display: flex !important;
+        pointer-events: auto !important;
         position: fixed !important;
-        top: 14px !important;
-        left: 14px !important;
+        top: 12px !important;
+        left: 12px !important;
         z-index: 999999 !important;
+    }}
+    [data-testid="collapsedControl"] button,
+    [data-testid="stSidebarCollapseButton"] button {{
+        background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%) !important;
+        border: 1.5px solid rgba(125, 211, 252, 0.85) !important;
+        border-radius: 50% !important;
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+        min-height: 40px !important;
+        box-shadow: 0 0 18px rgba(56, 189, 248, 0.65) !important;
+    }}
+    [data-testid="collapsedControl"] svg,
+    [data-testid="stSidebarCollapseButton"] svg {{
+        fill: #ffffff !important;
+        stroke: #ffffff !important;
+        color: #ffffff !important;
     }}
     [data-testid="collapsedControl"] button,
     [data-testid="stSidebarCollapseButton"] button {{
@@ -1126,11 +1139,25 @@ st.markdown(f"""
         width: 100% !important;
     }}
     button[kind="secondary"] {{
-        background: #ef4444 !important;
+        background: linear-gradient(135deg, #f43f5e 0%, #e11d48 45%, #7c3aed 100%) !important;
         color: #ffffff !important;
-        border: none !important;
-        border-radius: 10px !important;
+        border: 1px solid rgba(251, 113, 133, 0.85) !important;
+        border-radius: 12px !important;
         font-weight: 700 !important;
+        letter-spacing: 0.3px !important;
+        box-shadow:
+            0 0 18px rgba(244, 63, 94, 0.5),
+            0 0 34px rgba(124, 58, 237, 0.3),
+            inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+        transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease !important;
+    }}
+    button[kind="secondary"]:hover {{
+        transform: translateY(-1px) !important;
+        filter: brightness(1.1) !important;
+        box-shadow:
+            0 0 24px rgba(244, 63, 94, 0.78),
+            0 0 44px rgba(124, 58, 237, 0.48),
+            inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
     }}
     button[data-baseweb="tab"] {{
         color: #94a3b8 !important;
