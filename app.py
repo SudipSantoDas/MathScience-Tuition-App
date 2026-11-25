@@ -1044,6 +1044,12 @@ st.markdown(f"""
         background: linear-gradient(180deg, #091426 0%, #030a16 100%) !important;
         border-right: 2px solid #38bdf8 !important;
         box-shadow: 6px 0 25px rgba(0, 0, 0, 0.8) !important;
+        position: relative !important;
+        left: 0 !important;
+        transform: translateX(0) !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 999990 !important;
     }}
     section[data-testid="stSidebar"][data-collapsed="false"] {{
         display: flex !important;
@@ -1053,8 +1059,6 @@ st.markdown(f"""
         z-index: 999990 !important;
     }}
     section[data-testid="stSidebar"][data-collapsed="true"] {{
-        display: none !important;
-        visibility: hidden !important;
     }}
     section[data-testid="stSidebar"] * {{
         color: #f1f5f9 !important;
