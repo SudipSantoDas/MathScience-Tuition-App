@@ -1012,7 +1012,9 @@ st.markdown(f"""
     [data-testid="collapsedControl"],
     [data-testid="collapsedControl"] button,
     [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarCollapseButton"] button {{
+    [data-testid="stSidebarCollapseButton"] button,
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stSidebarCollapsedControl"] button {{
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
@@ -1023,35 +1025,20 @@ st.markdown(f"""
         z-index: 999999 !important;
     }}
     [data-testid="collapsedControl"] button,
-    [data-testid="stSidebarCollapseButton"] button {{
+    [data-testid="stSidebarCollapseButton"] button,
+    [data-testid="stSidebarCollapsedControl"] button {{
         background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%) !important;
         border: 1.5px solid rgba(125, 211, 252, 0.85) !important;
-        border-radius: 50% !important;
-        width: 40px !important;
-        height: 40px !important;
-        min-width: 40px !important;
-        min-height: 40px !important;
-        box-shadow: 0 0 18px rgba(56, 189, 248, 0.65) !important;
-    }}
-    [data-testid="collapsedControl"] svg,
-    [data-testid="stSidebarCollapseButton"] svg {{
-        fill: #ffffff !important;
-        stroke: #ffffff !important;
-        color: #ffffff !important;
-    }}
-    [data-testid="collapsedControl"] button,
-    [data-testid="stSidebarCollapseButton"] button {{
-        background: #0284c7 !important;
-        border: 2px solid #38bdf8 !important;
         border-radius: 50% !important;
         width: 42px !important;
         height: 42px !important;
         min-width: 42px !important;
         min-height: 42px !important;
-        box-shadow: 0 0 15px rgba(56, 189, 248, 0.6) !important;
+        box-shadow: 0 0 18px rgba(56, 189, 248, 0.65) !important;
     }}
     [data-testid="collapsedControl"] svg,
-    [data-testid="stSidebarCollapseButton"] svg {{
+    [data-testid="stSidebarCollapseButton"] svg,
+    [data-testid="stSidebarCollapsedControl"] svg {{
         fill: #ffffff !important;
         stroke: #ffffff !important;
         color: #ffffff !important;
