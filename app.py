@@ -1572,6 +1572,120 @@ def render_csv_import_widget(institute_id: int, key_prefix: str):
         st.success(f"Imported {inserted} student(s) successfully!")
         st.rerun()
 
+def show_landing_page():
+    # Top Nav Bar
+    nav_col1, nav_col2 = st.columns([4, 1])
+    with nav_col1:
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 12px;">
+            {logo_img_tag(42)}
+            <div>
+                <strong style="font-size: 18px; color: #ffffff;">MathScience Tuition Manager</strong><br>
+                <span style="font-size: 12px; color: #38bdf8;">All-in-One Coaching & Academy OS</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    with nav_col2:
+        if st.button("🔐 Login / Register", use_container_width=True, key="hero_top_login"):
+            st.session_state.show_auth_portal = True
+            st.rerun()
+
+    st.write("")
+
+    # Hero Banner
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 58, 138, 0.65) 100%);
+                border: 1.5px solid #38bdf8; border-radius: 18px; padding: 32px 24px; text-align: center; margin: 10px 0 24px 0;">
+        <span style="background: rgba(56, 189, 248, 0.18); color: #38bdf8; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 700;">
+            BUILT FOR TUITION CENTERS & COACHING INSTITUTES
+        </span>
+        <h1 style="font-size: 32px; margin: 14px 0 10px 0; color: #ffffff; line-height: 1.2;">
+            Manage Students, Attendance & Fees in One Place
+        </h1>
+        <p style="color: #cbd5e1; font-size: 15px; max-width: 640px; margin: 0 auto 20px auto; line-height: 1.6;">
+            Replace messy registers and WhatsApp follow-ups with dedicated portals for <strong>Admins</strong>, <strong>Teachers</strong>, and <strong>Parents</strong>. Set up your academy in under 60 seconds.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    cta1, cta2, cta3 = st.columns([1, 2, 1])
+    with cta2:
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("🚀 Start Free (15 Students)", use_container_width=True, key="hero_cta_signup"):
+                st.session_state.show_auth_portal = True
+                st.rerun()
+        with b2:
+            if st.button("🔑 Existing User Login", use_container_width=True, key="hero_cta_login"):
+                st.session_state.show_auth_portal = True
+                st.rerun()
+
+    st.write("---")
+
+    # Three Role Pillars
+    st.subheader("✨ Everything Your Academy Needs")
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.markdown("""
+        <div class="glass-card">
+            <h4 style="color: #38bdf8; margin-top: 0;">🛠️ Admin Master Console</h4>
+            <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+                Track expected vs. collected revenue, bulk import students via CSV, and create separate logins for your staff and parents.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    with f2:
+        st.markdown("""
+        <div class="glass-card">
+            <h4 style="color: #38bdf8; margin-top: 0;">🧑‍🏫 Teacher Desk</h4>
+            <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+                Create batches, mark daily attendance in seconds, update monthly fee statuses, and broadcast class-specific announcements.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    with f3:
+        st.markdown("""
+        <div class="glass-card">
+            <h4 style="color: #38bdf8; margin-top: 0;">👨‍👩‍👧 Private Parent Portal</h4>
+            <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+                Parents log in to view only their own child's attendance percentage, fee receipts, and upcoming exam notices.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.write("---")
+
+    # Simple Pricing
+    st.subheader("💳 Simple, Transparent Pricing")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.markdown(f"""
+        <div class="glass-card">
+            <h3 style="margin-top: 0; color: #ffffff;">Free Starter</h3>
+            <p style="font-size: 24px; font-weight: 800; color: #38bdf8; margin: 6px 0;">₹0 <span style="font-size: 13px; color: #94a3b8;">/ forever</span></p>
+            <ul style="color: #cbd5e1; font-size: 13px; line-height: 1.8; padding-left: 18px;">
+                <li>Up to <strong>{FREE_STUDENT_LIMIT} students</strong></li>
+                <li>Unlimited batches, attendance & fee tracking</li>
+                <li>Dedicated Teacher & Parent logins</li>
+                <li>CSV roster & ledger exports</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    with p2:
+        st.markdown(f"""
+        <div class="glass-card" style="border-color: #4ade80;">
+            <h3 style="margin-top: 0; color: #4ade80;">Premium Academy</h3>
+            <p style="font-size: 24px; font-weight: 800; color: #4ade80; margin: 6px 0;">₹{PREMIUM_UPGRADE_AMOUNT_INR} <span style="font-size: 13px; color: #94a3b8;">/ upgrade</span></p>
+            <ul style="color: #cbd5e1; font-size: 13px; line-height: 1.8; padding-left: 18px;">
+                <li><strong>Unlimited students</strong> across all batches</li>
+                <li>Everything in Free Starter</li>
+                <li>Instant online activation</li>
+                <li>Priority platform support</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+
 # ----------------------------------------------------
 if not st.session_state.get("logged_in", False):
     if st.session_state.get("show_auth_portal", False):
