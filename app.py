@@ -36,8 +36,16 @@ FREE_STUDENT_LIMIT = 15
 # deploy so the seeded account isn't the public default. After that first run,
 # use the in-app "Change Password" form in the Super Admin console instead —
 # these env vars won't touch an already-seeded account on later restarts.
-SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "")
-SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "")
+def _get_secret_or_env(key: str, default: str = "") -> str:
+    try:
+        if key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:
+        pass
+    return os.environ.get(key, default)
+
+SUPER_ADMIN_EMAIL = _get_secret_or_env("SUPER_ADMIN_EMAIL", "")
+SUPER_ADMIN_PASSWORD = _get_secret_or_env("SUPER_ADMIN_PASSWORD", "")
 
 # Demo credentials are never shown on the login page.
 
