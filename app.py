@@ -181,7 +181,7 @@ def is_valid_email(email: str) -> bool:
 # 3. DATABASE LAYER
 # ----------------------------------------------------
 @st.cache_resource
-def get_connection():
+def _create_raw_connection():
     if USE_TURSO:
         import libsql
         raw_conn = libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
@@ -194,6 +194,24 @@ def get_connection():
         conn.row_factory = sqlite3.Row
         _create_schema(conn)
     init_db(conn)
+    return conn
+
+@st.cache_resource
+def _get_cached_connection_holder():
+    return {"conn": _create_raw_connection()}
+
+def get_connection():
+    holder = _get_cached_connection_holder()
+    conn = holder.get("conn")
+    if conn is None:
+        conn = _create_raw_connection()
+        holder["conn"] = conn
+        return conn
+    try:
+        conn.execute("SELECT 1").fetchone()
+    except Exception:
+        conn = _create_raw_connection()
+        holder["conn"] = conn
     return conn
 
 def _ensure_column(conn, table: str, column: str, coltype: str):
@@ -391,7 +409,7 @@ def init_db(conn):
         if existing_institute:
             legacy_institute_id = existing_institute["id"]
         else:
-            cur = conn.execute(
+            conn.execute(
                 "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
                 ("My Academy", owner_email, "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
             )
@@ -405,8 +423,9 @@ def init_db(conn):
             conn.execute(f"UPDATE {table} SET institute_id=? WHERE institute_id IS NULL", (legacy_institute_id,))
         conn.commit()
 
-    if conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
-        cur = conn.execute(
+    seed_demo = os.environ.get("SEED_DEMO_DATA", "").strip().lower() in ("1", "true", "yes")
+    if seed_demo and conn.execute("SELECT COUNT(*) FROM institutes").fetchone()[0] == 0:
+        conn.execute(
             "INSERT INTO institutes(name, owner_email, plan, student_limit, created_at) VALUES (?,?,?,?,?)",
             ("Demo Academy", "admin@academy.com", "Premium", 999999, datetime.date.today().strftime("%Y-%m-%d")),
         )
@@ -449,13 +468,17 @@ def init_db(conn):
         )
         conn.commit()
 
-    if conn.execute("SELECT COUNT(*) FROM users WHERE is_super_admin=1").fetchone()[0] == 0:
+    clean_sa_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
+    if (
+        conn.execute("SELECT COUNT(*) FROM users WHERE is_super_admin=1").fetchone()[0] == 0
+        and is_valid_email(clean_sa_email)
+        and is_password_strong_enough(SUPER_ADMIN_PASSWORD)
+    ):
         conn.execute(
             "INSERT INTO users(email, password_hash, role, institute_id, is_super_admin) VALUES (?,?,?,?,1)",
-            (SUPER_ADMIN_EMAIL, hash_password(SUPER_ADMIN_PASSWORD), "Admin", None),
+            (clean_sa_email, hash_password(SUPER_ADMIN_PASSWORD), "Admin", None),
         )
         conn.commit()
-
 # ---- Auth ----
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_MINUTES = 15
