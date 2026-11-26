@@ -1573,6 +1573,14 @@ def render_csv_import_widget(institute_id: int, key_prefix: str):
         st.rerun()
 
 # ----------------------------------------------------
+if not st.session_state.get("logged_in", False):
+    if st.session_state.get("show_auth_portal", False):
+        if st.button("← Back to Home", key="back_to_landing_btn"):
+            st.session_state.show_auth_portal = False
+            st.rerun()
+        show_login()
+    else:
+        show_landing_page()
 # 8. VIEW: LOGIN / SIGNUP  (rewritten for clarity — see change note below)
 # ----------------------------------------------------
 def show_login():
