@@ -1731,15 +1731,6 @@ def show_landing_page():
     </div>
     """, unsafe_allow_html=True)            
 
-# ----------------------------------------------------
-if not st.session_state.get("logged_in", False):
-    if st.session_state.get("show_auth_portal", False):
-        if st.button("← Back to Home", key="back_to_landing_btn"):
-            st.session_state.show_auth_portal = False
-            st.rerun()
-        show_login()
-    else:
-        show_landing_page()
 # 8. VIEW: LOGIN / SIGNUP  (rewritten for clarity — see change note below)
 # ----------------------------------------------------
 def show_login():
@@ -1854,7 +1845,15 @@ def show_login():
                                 st.error("An account with that email already exists. Please use the Login tab instead.")
                 else:
                     st.warning("Please fill in all fields.")
-
+# ----------------------------------------------------
+if not st.session_state.get("logged_in", False):
+    if st.session_state.get("show_auth_portal", False):
+        if st.button("← Back to Home", key="back_to_landing_btn"):
+            st.session_state.show_auth_portal = False
+            st.rerun()
+        show_login()
+    else:
+        show_landing_page()
 # ----------------------------------------------------
 # 9. VIEW: TEACHER DASHBOARD
 # ----------------------------------------------------
