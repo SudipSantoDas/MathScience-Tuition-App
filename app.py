@@ -1035,6 +1035,17 @@ st.markdown(f"""
     p, span, label, .stMarkdown p, [data-testid="stMarkdownContainer"] p {{
         color: #f1f5f9 !important;
     }}
+    html, body, [data-testid="stAppViewContainer"], .main {{
+        overscroll-behavior-y: contain !important;
+    }}
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    #MainMenu,
+    footer {{
+        display: none !important;
+        visibility: hidden !important;
+    }}
     header[data-testid="stHeader"] {{
         background: transparent !important;
         z-index: 999995 !important;
