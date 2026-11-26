@@ -1684,7 +1684,41 @@ def show_landing_page():
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
+        st.write("---")
+
+    # Frequently Asked Questions
+    st.subheader("❓ Frequently Asked Questions")
+    with st.expander("Can I really start for free with no upfront payment?"):
+        st.write(
+            f"Yes. The Free Starter tier supports up to {FREE_STUDENT_LIMIT} students so you can "
+            "set up batches, test attendance and fee tracking, and invite staff or parents before upgrading."
+        )
+    with st.expander("How do Teachers and Parents get access to their portals?"):
+        st.write(
+            "After registering your academy as Admin, you create accounts for your teachers and link "
+            "parent email addresses to student records. Teachers and parents then log in using those credentials."
+        )
+    with st.expander("Is each coaching institute's data kept separate and secure?"):
+        st.write(
+            "Yes. Every academy operates under its own isolated workspace so student records, attendance, "
+            "and fee logs stay private to that institute, with CSV export options available anytime."
+        )
+    with st.expander("How do I upgrade from Free to Premium?"):
+        st.write(
+            f"Once you reach the {FREE_STUDENT_LIMIT}-student cap—or whenever you're ready for unlimited "
+            f"students—you can upgrade directly from your academy dashboard (₹{PREMIUM_UPGRADE_AMOUNT_INR})."
+        )
+
+    st.write("---")
+
+    # Footer
+    st.markdown("""
+    <div style="text-align: center; color: #94a3b8; font-size: 13px; padding: 8px 0 20px 0;">
+        <strong>MathScience Tuition Manager</strong> · Powered by
+        <a href="https://mathscience.in" target="_blank" style="color: #38bdf8; text-decoration: none;">mathscience.in</a><br>
+        <span style="font-size: 12px;">Need help setting up your coaching center? Reach out via your academy support channel.</span>
+    </div>
+    """, unsafe_allow_html=True)            
 
 # ----------------------------------------------------
 if not st.session_state.get("logged_in", False):
