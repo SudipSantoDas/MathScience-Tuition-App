@@ -1295,7 +1295,32 @@ st.markdown(f"""
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }}
+@media (max-width: 768px) {{
+        section[data-testid="stSidebar"][data-collapsed="true"] {{
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            transform: translateX(-100%) !important;
+            pointer-events: none !important;
+        }}
+        section[data-testid="stSidebar"][data-collapsed="false"] {{
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            height: 100vh !important;
+            width: 82vw !important;
+            max-width: 320px !important;
+            transform: translateX(0px) !important;
+            z-index: 999990 !important;
+        }}
+    }}
 </style>
+
 """, unsafe_allow_html=True)
 # ----------------------------------------------------
 # 7. SHARED HELPERS
@@ -1355,7 +1380,7 @@ def render_header(title: str, subtitle: str, size: int = 48):
                 doc.body.appendChild(btn);
             }
             const sb = doc.querySelector('section[data-testid="stSidebar"]');
-            const isCollapsed = !sb || sb.getAttribute('data-collapsed') === 'true';
+            const isCollapsed = !sb || sb.getAttribute('data-collapsed') === 'true' || getComputedStyle(sb).display === 'none';
             btn.style.display = isCollapsed ? 'flex' : 'none';
         })();
         </script>
